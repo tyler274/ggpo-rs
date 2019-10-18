@@ -1,2 +1,2 @@
 # ggpo-rs
-Reimplementation of GGPO in Rust
+Reimplementation of GGPO(https://github.com/pond3r/ggpo) in Rust
