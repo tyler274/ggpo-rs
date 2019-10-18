@@ -1,5 +1,5 @@
 mod ggpo {
-    enum GGPOErrorCode<T> {
+    pub enum GGPOErrorCode<T> {
         Ok(T),
         Success(T),
         GeneralFailure(T),
@@ -32,7 +32,7 @@ mod ggpo {
         remote: std::net::SocketAddr,
     }
 
-    struct GGPOPlayer {
+    pub struct GGPOPlayer {
         size: i32,
         player_type: GGPOPlayerType,
         player_num: i32,
@@ -99,6 +99,50 @@ mod ggpo {
     pub trait GGPOSession {
         fn do_poll(timeout: i32) -> GGPOErrorCode<()> {
             GGPOErrorCode::Ok(())
+        }
+
+        fn add_player(player: GGPOPlayer, handle: GGPOPlayerHandle) -> GGPOErrorCode<()>;
+
+        fn add_local_input(
+            player: GGPOPlayerHandle,
+            values: String,
+            size: i32,
+        ) -> GGPOErrorCode<()>;
+
+        fn sync_input(values: String, size: i32, disconnect_flags: i32) -> GGPOErrorCode<()>;
+
+        fn increment_frame() -> GGPOErrorCode<()> {
+            GGPOErrorCode::Ok(())
+        }
+
+        fn chat(text: String) -> GGPOErrorCode<()> {
+            GGPOErrorCode::Ok(())
+        }
+
+        fn disconnect_player(handle: GGPOPlayerHandle) -> GGPOErrorCode<()> {
+            GGPOErrorCode::Ok(())
+        }
+
+        fn get_network_stats(
+            stats: GGPONetworkStats,
+            handle: GGPOPlayerHandle,
+        ) -> GGPOErrorCode<()> {
+            GGPOErrorCode::Ok(())
+        }
+
+        //TODO: stub this with the log crate
+        //fn logv()
+
+        fn set_frame_delay(player: GGPOPlayerHandle, delay: i32) -> GGPOErrorCode<()> {
+            GGPOErrorCode::Unsupported(())
+        }
+
+        fn set_disconnect_timeout(timeout: i32) -> GGPOErrorCode<()> {
+            GGPOErrorCode::Unsupported(())
+        }
+
+        fn set_disconnect_notify_start(timeout: i32) -> GGPOErrorCode<()> {
+            GGPOErrorCode::Unsupported(())
         }
     }
 
