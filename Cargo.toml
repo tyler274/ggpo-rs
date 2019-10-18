@@ -1,0 +1,14 @@
+[package]
+name = "ggpo-rs"
+version = "0.1.0"
+authors = ["Tyler274 <tyler274port@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bit-vec = "0.6.1"
+arraydeque = "0.4.5"
+log = "0.4"
+flate2 = "1.0"
+mio = "0.6.19"
