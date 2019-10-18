@@ -14,10 +14,10 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Install stable
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: stable
-            override: true
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
