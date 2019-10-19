@@ -16,6 +16,7 @@ arraydeque = "0.4.5"
 log = "0.4"
 flate2 = "1.0"
 mio = "0.6.19"
+serde = "1.0"
 
 [lib]
 name = "ggpo"
