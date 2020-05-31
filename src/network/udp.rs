@@ -1,6 +1,6 @@
 // use laminar::{Packet, Result, Socket, SocketEvent};
 use mio::net::UdpSocket;
-use mio::{Events, Poll, PollOpt, Ready, Token};
+use mio::{Events, Poll, Token};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::SocketAddr;

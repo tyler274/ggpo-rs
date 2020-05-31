@@ -15,57 +15,58 @@ pub enum GGPOErrorCode<T> {
     InvalidRequest(T),
 }
 
-type GGPOPlayerHandle = i32;
+type PlayerHandle = i32;
 
-enum GGPOPlayerType {
-    GgpoPlayertypeLocal,
-    GgpoPlayertypeRemote,
-    GgpoPlayertypeSpectator,
+pub enum PlayerType {
+    Local,
+    Remote { socket_addr: std::net::SocketAddr },
+    Spectator,
 }
 
-#[derive(Copy, Clone)]
-struct Nil;
-
-union Socket {
-    local: Nil,
-    remote: std::net::SocketAddr,
-}
-
-pub struct GGPOPlayer {
-    size: i32,
-    player_type: GGPOPlayerType,
-    player_num: i32,
-    socket: Socket,
-}
-
-struct GGPOLocalEndpoint {
+pub struct Player {
+    size: usize,
+    player_type: PlayerType,
     player_num: i32,
 }
 
-pub enum GGPOEvent {
-    GgpoEventcodeConnectedToPeer {
-        player: GGPOPlayerHandle,
+impl Player {
+    pub fn new(player_type: PlayerType, player_num: i32) -> Player {
+        Player {
+            player_num: player_num,
+            player_type: player_type,
+            size: std::mem::size_of::<Player>(),
+        }
+    }
+}
+
+struct LocalEndpoint {
+    player_num: i32,
+}
+
+pub enum Event {
+    ConnectedToPeer {
+        player: PlayerHandle,
     },
-    GgpoEventcodeSynchronizingWithPeer {
+    SynchronizingWithPeer {
         count: i32,
         total: i32,
     },
-    GgpoEventcodeSynchronizedWithPeer {
-        player: GGPOPlayerHandle,
+    SynchronizedWithPeer {
+        player: PlayerHandle,
     },
-    GgpoEventcodeRunning {},
-    GgpoEventcodeDisconnectedFromPeer {
-        player: GGPOPlayerHandle,
+    Running {},
+    DisconnectedFromPeer {
+        player: PlayerHandle,
     },
-    GgpoEventcodeTimesync {
+    Timesync {
         frames_ahead: i32,
     },
-    GgpoEventcodeConnectionInterrupted {
-        player: GGPOPlayerHandle,
+    ConnectionInterrupted {
+        player: PlayerHandle,
         disconnect_timeout: i32,
     },
-    GgpoEventcodeConnectionResumed {
-        player: GGPOPlayerHandle,
+    ConnectionResumed {
+        player: PlayerHandle,
     },
 }
 
@@ -75,7 +76,7 @@ pub trait GGPOSessionCallbacks {
     fn load_game_state() -> bool;
     fn free_buffer();
     fn advance_frame(flags: i32) -> bool;
-    fn on_event(info: GGPOEvent);
+    fn on_event(info: Event);
 }
 
 struct Network {
@@ -95,14 +96,14 @@ pub struct GGPONetworkStats {
     timesync: Timesync,
 }
 
-pub trait GGPOSession {
+pub trait Session {
     fn do_poll(timeout: i32) -> GGPOErrorCode<()> {
         GGPOErrorCode::Ok(())
     }
 
-    fn add_player(player: GGPOPlayer, handle: GGPOPlayerHandle) -> GGPOErrorCode<()>;
+    fn add_player(player: Player, handle: PlayerHandle) -> GGPOErrorCode<()>;
 
-    fn add_local_input(player: GGPOPlayerHandle, values: String, size: i32) -> GGPOErrorCode<()>;
+    fn add_local_input(player: PlayerHandle, values: String, size: i32) -> GGPOErrorCode<()>;
 
     fn sync_input(values: String, size: i32, disconnect_flags: i32) -> GGPOErrorCode<()>;
 
@@ -114,18 +115,18 @@ pub trait GGPOSession {
         GGPOErrorCode::Ok(())
     }
 
-    fn disconnect_player(handle: GGPOPlayerHandle) -> GGPOErrorCode<()> {
+    fn disconnect_player(handle: PlayerHandle) -> GGPOErrorCode<()> {
         GGPOErrorCode::Ok(())
     }
 
-    fn get_network_stats(stats: GGPONetworkStats, handle: GGPOPlayerHandle) -> GGPOErrorCode<()> {
+    fn get_network_stats(stats: GGPONetworkStats, handle: PlayerHandle) -> GGPOErrorCode<()> {
         GGPOErrorCode::Ok(())
     }
 
     //TODO: stub this with the log crate
     //fn logv()
 
-    fn set_frame_delay(player: GGPOPlayerHandle, delay: i32) -> GGPOErrorCode<()> {
+    fn set_frame_delay(player: PlayerHandle, delay: i32) -> GGPOErrorCode<()> {
         GGPOErrorCode::Unsupported(())
     }
 

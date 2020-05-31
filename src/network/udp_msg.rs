@@ -14,20 +14,11 @@ struct ConnectStatus {
     last_frame: i32,
 }
 
-struct Hdr {
+struct Header {
     magic: u16,
     sequence_number: u16,
     packet_type: MsgType,
 }
-// impl Default for Hdr {
-//     fn default() -> Self {
-//         Hdr {
-//             magic: 0,
-//             sequence_number: 0,
-//             packet_type: MsgType::Invalid,
-//         }
-//     }
-// }
 
 const UDP_MSG_MAX_PLAYERS: usize = 4;
 const MAX_COMPRESSED_BITS: usize = 4096;
@@ -66,19 +57,29 @@ enum MsgEnum {
 }
 
 pub struct UdpMsg {
-    hdr: Hdr,
+    header: Header,
     u: MsgEnum,
 }
 
 impl UdpMsg {
-    pub fn new(t: MsgType) -> UdpMsg {
-        match t {}
-        // UdpMsg {
-        //     hdr: Hdr {
-        //         magic: 0,
-        //         sequence_number: 0,
-        //         packet_type: t,
-        //     },
-        // }
+    pub fn payload_size(self) -> usize {
+        match self.header.packet_type {
+            _ => std::mem::size_of::<MsgEnum>(),
+        }
     }
+    pub fn packet_size(self) -> usize {
+        std::mem::size_of::<UdpMsg>()
+    }
+    // pub fn new(t: MsgType) -> UdpMsg {
+    //     match t {
+    //         MsgType::SyncRequest => UdpMsg {
+    //             header: Header {
+    //                 magic: 0,
+    //                 sequence_number: 0,
+    //                 packet_type: t,
+    //             },
+    //             u: MsgEnum::SyncRequest { random_request: 0 },
+    //         },
+    //     }
+    // }
 }

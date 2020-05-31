@@ -1,0 +1,293 @@
+use crate::game_input;
+use log::info;
+use std::cmp;
+
+const INPUT_QUEUE_LENGTH: usize = 128;
+const DEFAULT_INPUT_SIZE: usize = 4;
+
+macro_rules! previous_frame {
+    ($offset:expr, $INPUT_QUEUE_LENGTH:expr) => {
+        if $offset == 0 {
+            $INPUT_QUEUE_LENGTH - 1
+        } else {
+            $offset - 1
+        }
+    };
+}
+
+pub struct InputQueue {
+    id: usize,
+    head: usize,
+    tail: usize,
+    length: usize,
+    first_frame: bool,
+
+    last_user_added_frame: Option<usize>,
+    last_added_frame: Option<usize>,
+    first_incorrect_frame: Option<usize>,
+    last_frame_requested: Option<usize>,
+
+    frame_delay: i32,
+
+    inputs: [game_input::GameInput; INPUT_QUEUE_LENGTH],
+    prediction: game_input::GameInput,
+}
+
+impl InputQueue {
+    pub fn init(id: usize, input_size: usize) -> InputQueue {
+        InputQueue {
+            id,
+            head: 0,
+            tail: 0,
+            length: 0,
+            frame_delay: 0,
+            first_frame: true,
+            last_user_added_frame: None,
+            last_added_frame: None,
+            first_incorrect_frame: None,
+            last_frame_requested: None,
+
+            prediction: game_input::GameInput::init(None, None, input_size),
+            inputs: [game_input::GameInput::init(
+                None,
+                Some(&[b'0'; game_input::GAMEINPUT_MAX_BYTES * game_input::GAMEINPUT_MAX_PLAYERS]),
+                input_size,
+            ); INPUT_QUEUE_LENGTH],
+        }
+    }
+    pub fn get_last_confirmed_frame(&self) -> Option<usize> {
+        if let Some(frame) = self.last_added_frame {
+            info!("returning last confirmed frame: {}\n", frame);
+        } else {
+            info!("returning last confirmed frame: Null frame\n");
+        }
+
+        self.last_added_frame
+    }
+
+    pub fn get_first_incorrect_frame(&self) -> Option<usize> {
+        self.first_incorrect_frame
+    }
+
+    pub fn discard_confirmed_frames(&mut self, in_frame: usize) {
+        let mut frame = in_frame;
+
+        if let Some(last_frame_requested) = self.last_frame_requested {
+            frame = cmp::min(frame, last_frame_requested);
+        }
+
+        if let Some(last_added_frame) = self.last_added_frame {
+            info!(
+                "discarding confirmed frames up to {} (last_added:{} length:{} [head:{} tail:{}]).\n",
+                frame, last_added_frame, self.length, self.head, self.tail
+            );
+
+            if frame >= last_added_frame {
+                self.tail = self.head;
+            } else {
+                if let Some(tail_frame) = self.inputs[self.tail].frame {
+                    let offset = frame - tail_frame + 1;
+
+                    info!("difference of {} frames.\n", offset);
+
+                    self.tail = (self.tail + offset) % INPUT_QUEUE_LENGTH;
+                    self.length -= offset;
+
+                    info!(
+                        "after discarding, new tail is {} (frame:{}).\n",
+                        self.tail, tail_frame,
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn reset_prediction(&mut self, frame: usize) {
+        if let Some(first_incorrect_frame) = self.first_incorrect_frame {
+            assert!(frame <= first_incorrect_frame);
+        }
+
+        info!("resetting all prediction errors back to frame {}.\n", frame);
+
+        self.prediction.frame = None;
+        self.first_incorrect_frame = None;
+        self.last_frame_requested = None;
+    }
+
+    pub fn get_input(&mut self, requested_frame: usize, input: &mut game_input::GameInput) -> bool {
+        info!("requesting input frame {}.\n", requested_frame);
+
+        /*
+         * No one should ever try to grab any input when we have a prediction
+         * error.  Doing so means that we're just going further down the wrong
+         * path.  ASSERT this to verify that it's true.
+         */
+        assert!(self.first_incorrect_frame == None);
+
+        /*
+         * Remember the last requested frame number for later.  We'll need
+         * this in AddInput() to drop out of prediction mode.
+         */
+        self.last_frame_requested = Some(requested_frame);
+
+        if let Some(input_tail_frame) = self.inputs[self.tail].frame {
+            assert!(requested_frame >= input_tail_frame);
+
+            if let Some(prediction_frame) = self.prediction.frame {
+            } else {
+                let mut offset = requested_frame - input_tail_frame;
+
+                if offset < self.length {
+                    offset = (offset + self.tail) % INPUT_QUEUE_LENGTH;
+                    if let Some(input_offset_frame) = self.inputs[offset].frame {
+                        assert!(input_offset_frame == requested_frame);
+                        *input = self.inputs[offset];
+                    }
+                    if let Some(input_frame) = input.frame {
+                        info!("returning confirmed frame number {}.\n", input_frame);
+                        return true;
+                    }
+                }
+
+                /*
+                 * The requested frame isn't in the queue.  Bummer.  This means we need
+                 * to return a prediction frame.  Predict that the user will do the
+                 * same thing they did last time.
+                 */
+                if requested_frame == 0 {
+                    info!(
+                        "basing new prediction frame from nothing, you're client wants frame 0.\n"
+                    );
+                    self.prediction.erase();
+                } else if self.last_added_frame == None {
+                    info!(
+                        "basing new prediction frame from nothing, since we have no frames yet.\n"
+                    );
+                    self.prediction.erase();
+                } else {
+                    if let Some(input_previous_frame) =
+                        self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)].frame
+                    {
+                        info!("basing new prediction frame from previously added frame (queue entry:{}, frame:{}).\n",
+                    previous_frame!(self.head, INPUT_QUEUE_LENGTH), input_previous_frame);
+                    }
+                    self.prediction = self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)];
+                }
+                if let Some(prediction_frame) = self.prediction.frame {
+                    self.prediction.frame = Some(prediction_frame + 1);
+                }
+            }
+        }
+
+        assert!(self.prediction.frame != None);
+        if let Some(prediction_frame) = self.prediction.frame {
+            /*
+             * If we've made it this far, we must be predicting.  Go ahead and
+             * forward the prediction frame contents.  Be sure to return the
+             * frame number requested by the client, though.
+             */
+            *input = self.prediction;
+            input.frame = Some(requested_frame);
+            if let Some(input_frame) = input.frame {
+                info!(
+                    "returning prediction frame number {} ({}).\n",
+                    input_frame, prediction_frame
+                );
+            }
+        }
+
+        false
+    }
+
+    pub fn add_delayed_input_to_queue(
+        &mut self,
+        input: game_input::GameInput,
+        frame_number: usize,
+    ) {
+        info!(
+            "adding delayed input frame number {} to queue.\n",
+            frame_number
+        );
+    }
+
+    pub fn add_input(&mut self, mut input: game_input::GameInput) {
+        let new_frame: Option<usize>;
+        if let Some(input_frame) = input.frame {
+            info!("adding input frame number {} to queue.\n", input_frame);
+
+            /*
+             * These next two lines simply verify that inputs are passed in
+             * sequentially by the user, regardless of frame delay.
+             */
+            if let Some(last_user_added_frame) = self.last_user_added_frame {
+                assert!(input_frame == last_user_added_frame + 1);
+            }
+
+            self.last_user_added_frame = input.frame;
+
+            /*
+             * Move the queue head to the correct point in preparation to
+             * input the frame into the queue.
+             */
+            if let Some(new_frame) = self.advance_queue_head(input.frame) {
+                self.add_delayed_input_to_queue(input, new_frame);
+
+                /*
+                 * Update the frame number for the input.  This will also set the
+                 * frame to GameInput::NullFrame for frames that get dropped (by
+                 * design).
+                 */
+                input.frame = Some(new_frame);
+            }
+        }
+    }
+
+    pub fn advance_queue_head(&mut self, i_frame: Option<usize>) -> Option<usize> {
+        if let Some(frame) = i_frame {
+            info!("advancing queue head to frame {}.\n", frame);
+            if let Some(input_previous_head) =
+                self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)].frame
+            {
+                let mut expected_frame = if self.first_frame {
+                    0
+                } else {
+                    input_previous_head + 1
+                };
+                if expected_frame > frame {
+                    /*
+                     * This can occur when the frame delay has dropped since the last
+                     * time we shoved a frame into the system.  In this case, there's
+                     * no room on the queue.  Toss it.
+                     */
+                    info!(
+                        "Dropping input frame {} (expected next frame to be {}).\n",
+                        frame, expected_frame
+                    );
+                    return None;
+                }
+
+                while expected_frame < frame {
+                    /*
+                     * This can occur when the frame delay has been increased since the last
+                     * time we shoved a frame into the system.  We need to replicate the
+                     * last frame in the queue several times in order to fill the space
+                     * left.
+                     */
+                    info!(
+                        "Adding padding frame {} to account for change in frame delay.\n",
+                        expected_frame
+                    );
+                    let last_frame_input: game_input::GameInput =
+                        self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)];
+
+                    self.add_delayed_input_to_queue(last_frame_input, expected_frame);
+                    expected_frame += 1;
+                }
+
+                assert!(frame == 0 || frame == input_previous_head + 1);
+            }
+            return Some(frame);
+        }
+        i_frame
+    }
+}

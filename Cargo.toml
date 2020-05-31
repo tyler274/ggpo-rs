@@ -1,7 +1,7 @@
 [package]
 name = "ggpo-rs"
 version = "0.1.0"
-authors = ["Tyler274 <tyler274port@gmail.com>"]
+authors = ["Tyler Port <tyler274port@gmail.com>"]
 edition = "2018"
 description = "A reimplementation of GGPO(https://github.com/pond3r/ggpo) in Rust"
 license-file = "LICENSE"
@@ -11,13 +11,20 @@ homepage = "https://github.com/tyler274/ggpo-rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bit-vec = "0.6.1"
-arraydeque = "0.4.5"
+bit-vec = "0.6"
+arraydeque = "0.4"
 log = "0.4"
-flate2 = "1.0"
-mio = "0.6.19"
 serde = "1.0"
+array-init = "0.1.1"
+
+[dependencies.mio]
+version = "0.7"
+features = ["udp"]
+default-features = true
+
 
 [lib]
 name = "ggpo"
-crate-type = ["dylib"]
+# can't test dylib in repo yet, at least until the library is more fleshed and actually does something, 
+# we'll just build as a staticlib the way Ferris intended for now. 
+# crate-type = ["dylib", "staticlib"] 

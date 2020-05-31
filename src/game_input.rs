@@ -1,73 +1,98 @@
-use log::{info, warn};
-use std::slice;
+use log::info;
 
 // GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS * 8 must be less than
 // 2^BITVECTOR_NIBBLE_SIZE (see bitvector.h)
 
-const MAX_BYTES: usize = 9;
-const MAX_PLAYERS: usize = 2;
+pub const GAMEINPUT_MAX_BYTES: usize = 9;
+pub const GAMEINPUT_MAX_PLAYERS: usize = 2;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct GameInput {
-    frame: i32,
+    pub frame: Option<usize>,
     size: usize,
-    bits: [u8; MAX_BYTES * MAX_PLAYERS],
+    bits: [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
 }
 
 impl GameInput {
-    fn init(frame: i32, i_bits: Option<&[u8; MAX_BYTES * MAX_PLAYERS]>, size: usize) -> GameInput {
-        assert!(size <= MAX_BYTES);
-        match i_bits {
-            Some(input_bits) => GameInput {
+    pub fn init(
+        frame: Option<usize>,
+        bits: Option<&[u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS]>,
+        size: usize,
+    ) -> GameInput {
+        assert!(size <= GAMEINPUT_MAX_BYTES);
+        match bits {
+            Some(i_bits) => GameInput {
                 frame,
                 size,
-                bits: input_bits.clone(),
+                bits: i_bits.clone(),
             },
             None => GameInput {
                 frame,
                 size,
-                bits: [b'0'; MAX_BYTES * MAX_PLAYERS],
+                bits: [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
             },
         }
     }
     const fn value(&self, i: usize) -> bool {
         (self.bits[i / 8] & (1 << (i % 8))) != 0
     }
-    fn set(mut self, i: usize) {
+    fn set(&mut self, i: usize) {
         self.bits[i / 8] |= (1 << (i % 8));
     }
-    fn clear(mut self, i: usize) {
+    fn clear(&mut self, i: usize) {
         self.bits[i / 8] &= !(1 << (i % 8));
     }
-    fn erase(mut self) {
-        self.bits = [b'0'; MAX_BYTES * MAX_PLAYERS];
+    pub fn erase(&mut self) {
+        self.bits = [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
     }
     fn describe(&self, show_frame: bool) -> String {
-        let mut buf: String;
-        if show_frame {
-            buf = format!("(frame:{} size:{}", self.frame, self.size);
-        } else {
-            buf = format!("(size:{}", self.size);
-        }
-        for i in 0..(self.size as usize) * 8 {
-            if self.value(i) {
-                let buf2 = format!("{:2}", i);
-                buf.push_str(&buf2);
+        let mut buf: String = String::from("");
+        if let Some(frame) = self.frame {
+            if show_frame {
+                buf = format!("(frame:{} size:{}", frame, self.size);
+            } else {
+                buf = format!("(size:{}", self.size);
             }
         }
-        buf + ")"
-    }
-    fn log(prefix: *mut [u8], show_frame: bool) {}
-    fn equal(&self, other: &GameInput, bitsonly: bool) -> bool {
-        if (!bitsonly && self.frame != other.frame) {
-            info!("frames don't match: {}, {}\n", self.frame, other.frame,);
+
+        for i in 0..(self.size as usize) * 8 {
+            if self.value(i) {
+                buf.push_str(&format!("{:2}", i));
+            }
         }
+        buf.push(')');
+        buf
+    }
+    fn log(prefix: &String, show_frame: bool) {}
+    fn equal(&self, other: &GameInput, bitsonly: bool) -> bool {
+        if !bitsonly {
+            match (self.frame, other.frame) {
+                (Some(self_frame), Some(other_frame)) => {
+                    if self_frame != other_frame {
+                        info!("frames don't match: {}, {}\n", self_frame, other_frame,);
+                    }
+                }
+                (Some(self_frame), None) => {
+                    info!("frames don't match: {}, {}\n", self_frame, "None",);
+                }
+                (None, Some(other_frame)) => {
+                    info!("frames don't match: {}, {}\n", "None", other_frame,);
+                }
+                (None, None) => {
+                    info!("frames don't match: {}, {}\n", "None", "None",);
+                }
+            }
+        }
+
         if self.size != other.size {
             info!("sizes don't match: {}, {}\n", self.size, other.size);
         }
 
-        return (bitsonly || self.frame == other.frame)
-            && self.size == other.size
-            && self.bits == other.bits;
+        let bits_equality = self.bits != other.bits;
+        if !bits_equality {
+            info!("bits don't match\n");
+        }
+
+        return (bitsonly || self.frame == other.frame) && self.size == other.size && bits_equality;
     }
 }
