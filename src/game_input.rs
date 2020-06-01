@@ -9,7 +9,7 @@ pub const GAMEINPUT_MAX_PLAYERS: usize = 2;
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct GameInput {
     pub frame: Option<usize>,
-    size: usize,
+    pub size: usize,
     bits: [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
 }
 

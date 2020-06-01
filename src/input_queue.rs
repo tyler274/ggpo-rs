@@ -201,13 +201,35 @@ impl InputQueue {
 
     pub fn add_delayed_input_to_queue(
         &mut self,
-        input: game_input::GameInput,
+        input: &game_input::GameInput,
         frame_number: usize,
     ) {
         info!(
             "adding delayed input frame number {} to queue.\n",
             frame_number
         );
+        assert!(input.size == self.prediction.size);
+        if let Some(last_added_frame) = self.last_added_frame {
+            assert!(frame_number == last_added_frame + 1);
+        }
+        if let Some(input_previous_head_frame) =
+            self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)].frame
+        {
+            assert!(frame_number == 0 || input_previous_head_frame == frame_number - 1);
+        } else {
+            assert!(frame_number == 0);
+        }
+
+        /*
+         * Add the frame to the back of the queue
+         */
+        self.inputs[self.head] = input.clone();
+        self.inputs[self.head].frame = Some(frame_number);
+        self.head = (self.head + 1) % INPUT_QUEUE_LENGTH;
+        self.length += 1;
+        self.first_frame = false;
+
+        self.last_added_frame = Some(frame_number);
     }
 
     pub fn add_input(&mut self, mut input: game_input::GameInput) {
@@ -230,7 +252,7 @@ impl InputQueue {
              * input the frame into the queue.
              */
             if let Some(new_frame) = self.advance_queue_head(input.frame) {
-                self.add_delayed_input_to_queue(input, new_frame);
+                self.add_delayed_input_to_queue(&input, new_frame);
 
                 /*
                  * Update the frame number for the input.  This will also set the
@@ -280,7 +302,7 @@ impl InputQueue {
                     let last_frame_input: game_input::GameInput =
                         self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)];
 
-                    self.add_delayed_input_to_queue(last_frame_input, expected_frame);
+                    self.add_delayed_input_to_queue(&last_frame_input, expected_frame);
                     expected_frame += 1;
                 }
 
