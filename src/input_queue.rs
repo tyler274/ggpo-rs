@@ -133,8 +133,7 @@ impl InputQueue {
         if let Some(input_tail_frame) = self.inputs[self.tail].frame {
             assert!(requested_frame >= input_tail_frame);
 
-            if let Some(prediction_frame) = self.prediction.frame {
-            } else {
+            if self.prediction.frame == None {
                 let mut offset = requested_frame - input_tail_frame;
 
                 if offset < self.length {
@@ -230,10 +229,44 @@ impl InputQueue {
         self.first_frame = false;
 
         self.last_added_frame = Some(frame_number);
+
+        if let Some(prediction_frame) = self.prediction.frame {
+            assert!(frame_number == prediction_frame);
+
+            /*
+             * We've been predicting...  See if the inputs we've gotten match
+             * what we've been predicting.  If so, don't worry about it.  If not,
+             * remember the first input which was incorrect so we can report it
+             * in GetFirstIncorrectFrame()
+             */
+            if self.first_incorrect_frame == None && !self.prediction.equal(input, true) {
+                info!(
+                    "frame {} does not match prediction.  marking error.\n",
+                    frame_number,
+                );
+                self.first_incorrect_frame = Some(frame_number);
+            }
+
+            /*
+             * If this input is the same frame as the last one requested and we
+             * still haven't found any mis-predicted inputs, we can dump out
+             * of predition mode entirely!  Otherwise, advance the prediction frame
+             * count up.
+             */
+            if self.prediction.frame == self.last_frame_requested
+                && self.first_incorrect_frame == None
+            {
+                info!("prediction is correct!  dumping out of prediction mode.\n");
+                self.prediction.frame = None;
+            } else {
+                self.prediction.frame = Some(prediction_frame + 1);
+            }
+        }
+        assert!(self.length <= INPUT_QUEUE_LENGTH);
     }
 
     pub fn add_input(&mut self, mut input: game_input::GameInput) {
-        let new_frame: Option<usize>;
+        // let new_frame: Option<usize> =;
         if let Some(input_frame) = input.frame {
             info!("adding input frame number {} to queue.\n", input_frame);
 
@@ -260,6 +293,8 @@ impl InputQueue {
                  * design).
                  */
                 input.frame = Some(new_frame);
+            } else {
+                input.frame = None
             }
         }
     }
