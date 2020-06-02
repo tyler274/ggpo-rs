@@ -9,7 +9,7 @@ pub enum MsgType {
     InputAck,
 }
 
-struct ConnectStatus {
+pub struct ConnectStatus {
     disconnected: i32,
     last_frame: i32,
 }
