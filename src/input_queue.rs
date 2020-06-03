@@ -15,6 +15,7 @@ macro_rules! previous_frame {
     };
 }
 
+#[derive(Copy, Clone)]
 pub struct InputQueue {
     id: usize,
     head: usize,
@@ -33,8 +34,37 @@ pub struct InputQueue {
     prediction: game_input::GameInput,
 }
 
+impl Default for InputQueue {
+    fn default() -> Self {
+        InputQueue {
+            id: 0,
+            head: 0,
+            tail: 0,
+            length: 0,
+            frame_delay: 0,
+            first_frame: true,
+            last_user_added_frame: None,
+            last_added_frame: None,
+            first_incorrect_frame: None,
+            last_frame_requested: None,
+
+            prediction: game_input::GameInput::init(None, None, DEFAULT_INPUT_SIZE),
+            inputs: [game_input::GameInput::init(
+                None,
+                Some(&[b'0'; game_input::GAMEINPUT_MAX_BYTES * game_input::GAMEINPUT_MAX_PLAYERS]),
+                DEFAULT_INPUT_SIZE,
+            ); INPUT_QUEUE_LENGTH],
+        }
+    }
+}
+
 impl InputQueue {
-    pub fn init(id: usize, input_size: usize) -> InputQueue {
+    pub fn new() -> Self {
+        InputQueue {
+            ..Default::default()
+        }
+    }
+    pub fn init(id: usize, input_size: usize) -> Self {
         InputQueue {
             id,
             head: 0,

@@ -14,6 +14,15 @@ pub struct ConnectStatus {
     last_frame: i32,
 }
 
+impl Default for ConnectStatus {
+    fn default() -> Self {
+        ConnectStatus {
+            disconnected: 0,
+            last_frame: 0,
+        }
+    }
+}
+
 struct Header {
     magic: u16,
     sequence_number: u16,
@@ -23,7 +32,7 @@ struct Header {
 const UDP_MSG_MAX_PLAYERS: usize = 4;
 const MAX_COMPRESSED_BITS: usize = 4096;
 
-enum MsgEnum {
+pub enum MsgEnum {
     SyncRequest {
         random_request: u32,
         remote_magic: u16,
@@ -58,7 +67,7 @@ enum MsgEnum {
 
 pub struct UdpMsg {
     header: Header,
-    u: MsgEnum,
+    message: MsgEnum,
 }
 
 impl UdpMsg {
