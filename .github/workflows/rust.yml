@@ -6,16 +6,16 @@ jobs:
   check:
     name: Check ${{ matrix.os }} (${{ matrix.toolchain }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
+    # continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         toolchain: [stable, nightly]
-        experimental: [false]
-        include:
-          - toolchain: stable
-            experimental: true
+        # experimental: [false]
+        # include:
+        #   - toolchain: stable
+        #     experimental: true
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -71,16 +71,16 @@ jobs:
   clippy:
     name: Clippy (${{ matrix.toolchain }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
+    # continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         toolchain: [stable, nightly]
-        experimental: [false]
-        include:
-          - toolchain: stable
-            experimental: true
+        # experimental: [false]
+        # include:
+        #   - toolchain: stable
+        #     experimental: true
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
