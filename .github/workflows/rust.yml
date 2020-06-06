@@ -48,9 +48,11 @@ jobs:
 
   fmt:
     name: Rustfmt (${{ matrix.toolchain }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         toolchain: [stable]
     steps:
       - uses: actions/checkout@v2
@@ -68,10 +70,12 @@ jobs:
 
   clippy:
     name: Clippy (${{ matrix.toolchain }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         toolchain: [stable, nightly]
         experimental: [false]
         include:
@@ -85,7 +89,6 @@ jobs:
           components: clippy
           toolchain: ${{ matrix.toolchain }}
           override: true
-      # - run: rustup component add clippy
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
