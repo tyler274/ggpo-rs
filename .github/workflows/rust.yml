@@ -12,10 +12,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macOS-latest]
 
     steps:
-    - uses: actions/checkout@latest
+    - uses: actions/checkout@v2
 
     - name: Install stable
-      uses: actions-rs/toolchain@latest
+      uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         override: true
@@ -27,7 +27,7 @@ jobs:
       run: cargo test --verbose
 
     - name: Install nightly
-      uses: actions-rs/toolchain@latest
+      uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly
         override: true
