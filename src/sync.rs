@@ -1,20 +1,22 @@
-use crate::game_input;
-use crate::ggpo::{CallbacksStub, GGPOSessionCallbacks};
-use crate::input_queue;
+use crate::game_input::{GameInput, InputBuffer, INPUT_BUFFER_SIZE};
+use crate::ggpo::GGPOSessionCallbacks;
+use crate::input_queue::InputQueue;
 use crate::network::udp_msg::ConnectStatus;
+use log::{error, info, warn};
 
 use arraydeque::ArrayDeque;
 
 const MAX_PREDICTION_FRAMES: usize = 8;
 
-pub struct Config<T: GGPOSessionCallbacks> {
-    callbacks: Option<Box<T>>,
+#[derive(Debug)]
+pub struct Config<'a, T: GGPOSessionCallbacks> {
+    callbacks: Option<&'a mut T>,
     num_prediction_frames: usize,
     num_players: usize,
     input_size: usize,
 }
 
-impl<'a> Default for Config<CallbacksStub> {
+impl<'a, T: GGPOSessionCallbacks> Default for Config<'a, T> {
     fn default() -> Self {
         Config {
             callbacks: None,
@@ -25,13 +27,21 @@ impl<'a> Default for Config<CallbacksStub> {
     }
 }
 
+impl<'a, T: GGPOSessionCallbacks> Config<'a, T> {
+    pub fn new() -> Self {
+        Config {
+            ..Default::default()
+        }
+    }
+}
+
 enum Type {
     ConfirmedInput,
 }
 
 pub struct Event {
     input_type: Type,
-    input: game_input::GameInput,
+    input: GameInput,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -58,24 +68,24 @@ struct SavedState<'a> {
     head: usize,
 }
 
-pub struct Sync<'a, T: GGPOSessionCallbacks> {
-    callbacks: Option<Box<T>>,
-    saved_state: SavedState<'a>,
-    config: Config<T>,
+pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
+    callbacks: Option<&'callbacks mut T>,
+    saved_state: SavedState<'callbacks>,
+    config: Option<&'callbacks mut Config<'callbacks, T>>,
 
     rolling_back: bool,
     last_confirmed_frame: Option<usize>,
     frame_count: usize,
     max_prediction_frames: usize,
 
-    input_queues: Box<[input_queue::InputQueue]>,
+    input_queues: Option<Vec<InputQueue>>,
 
     event_queue: ArrayDeque<[Event; 32]>,
-    local_connect_status: Option<&'a ConnectStatus>,
+    local_connect_status: Option<Vec<&'network ConnectStatus>>,
 }
 
-impl<'a> Default for Sync<'a, CallbacksStub> {
-    fn default() -> Self {
+impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
+    fn default() -> Sync<'a, 'b, T> {
         Sync {
             local_connect_status: None,
             frame_count: 0,
@@ -86,55 +96,398 @@ impl<'a> Default for Sync<'a, CallbacksStub> {
                 frames: [SavedFrame::new(); MAX_PREDICTION_FRAMES + 2],
             },
             callbacks: None,
-            config: Config {
-                ..Default::default()
-            },
+            config: None,
             rolling_back: false,
-            input_queues: Box::new([input_queue::InputQueue::new(); 2]),
+            input_queues: None,
             event_queue: ArrayDeque::new(),
         }
     }
 }
 
-pub trait SyncTrait<'a, T: GGPOSessionCallbacks> {
-    fn new(connect_status: &ConnectStatus) -> Sync<'a, T>;
-    fn init(&mut self, config: &Config<T>);
-    fn set_last_confirmed_frame(frame: Option<usize>);
-    fn set_frame_delay(queue: usize, delay: usize);
-    fn add_local_input(queue: usize, input: &game_input::GameInput) -> bool;
-    fn add_remote_input(queue: usize, input: &game_input::GameInput);
+pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
+    fn new(connect_status: Vec<&'b ConnectStatus>) -> Sync<'a, 'b, T>;
+    fn init(&mut self, config: &'a mut Config<'a, T>);
+    fn set_last_confirmed_frame(&mut self, frame: Option<usize>);
+    fn set_frame_delay(&mut self, queue: usize, delay: usize);
+    fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
+    fn add_remote_input(&mut self, queue: usize, input: &GameInput);
     // void *....................
     fn get_confirmed_inputs(
-        values: &[game_input::GameInput],
-        size: usize,
+        &mut self,
+        values: &mut Vec<InputBuffer>,
         frame: Option<usize>,
     ) -> usize;
-    fn synchronize_inputs(values: &[game_input::GameInput]) -> usize;
+    fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
 
-    fn check_simulation(timeout: usize);
-    fn adjust_simulation(seek_to: usize);
+    fn check_simulation(&mut self);
+    fn adjust_simulation(&mut self, seek_to: usize);
     // void......again
-    fn increment_frame();
+    fn increment_frame(&mut self);
 
-    fn get_frame_count() -> usize;
-    fn in_rollback() -> bool;
-    fn get_event(e: &Event) -> bool;
+    fn get_frame_count(&self) -> usize;
+    fn in_rollback(&self) -> bool;
+    fn get_event(&mut self) -> Option<Event>;
 
-    fn load_frame(frame: Option<usize>);
-    fn save_current_frame();
-    fn find_saved_frame_index(frame: Option<usize>) {}
-    fn get_last_saved_frame() -> SavedFrame<'a>;
+    fn load_frame(&mut self, frame: Option<usize>);
+    fn save_current_frame(&mut self);
+    fn find_saved_frame_index(&self, frame: Option<usize>) -> usize;
+    fn get_last_saved_frame(&self) -> SavedFrame<'a>;
 
-    fn create_queues(config: &Config<T>) -> bool;
-    fn check_simulation_consistency(seek_to: &usize) -> bool;
-    fn reset_prediction(frame_number: usize);
+    fn create_queues(&mut self) -> bool;
+    fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool;
+    fn reset_prediction(&mut self, frame_number: usize);
 }
 
-// impl<'a> SyncTrait<'a, CallbacksStub> for Sync<'a, CallbacksStub> {
-//     fn new(connect_status: &ConnectStatus) -> Self {
-//         Sync {
-//             local_connect_status: connect_status,
-//             ..Default::default()
-//         }
-//     }
-// }
+impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
+    fn new(connect_status: Vec<&'b ConnectStatus>) -> Self {
+        Sync {
+            local_connect_status: Some(Vec::from(connect_status)),
+            ..Default::default()
+        }
+    }
+
+    fn init(&mut self, config: &'a mut Config<'a, T>) {
+        self.config = Some(config);
+        // Config {
+        //     callbacks: config.callbacks,
+        //     num_prediction_frames: config.num_prediction_frames,
+        //     num_players: config.num_players,
+        //     input_size: config.input_size,
+        // };
+        // self.callbacks = config.callbacks;
+        // self.frame_count = 0;
+        // self.rolling_back = false;
+
+        // self.max_prediction_frames = config.num_prediction_frames;
+
+        self.create_queues();
+    }
+
+    fn create_queues(&mut self) -> bool {
+        if let Some(config) = &self.config {
+            self.input_queues = Some(Vec::with_capacity(config.num_players));
+
+            if let Some(input_queues) = &mut self.input_queues {
+                for i in 0..config.num_players {
+                    input_queues[i] = InputQueue::init(i, config.input_size);
+                }
+            }
+        } else {
+            error!("Config is None");
+            return false;
+        }
+
+        true
+    }
+
+    fn set_last_confirmed_frame(&mut self, frame: Option<usize>) {
+        self.last_confirmed_frame = frame;
+        if let (Some(last_confirmed_frame), Some(config)) =
+            (self.last_confirmed_frame, self.config.as_ref())
+        {
+            if last_confirmed_frame > 0 {
+                if let Some(input_queues) = &mut self.input_queues {
+                    for i in 0..config.num_players {
+                        input_queues[i].discard_confirmed_frames(last_confirmed_frame - 1);
+                    }
+                }
+            }
+        } else {
+            // FIXME: Use a match here to error on config only.
+        }
+    }
+
+    fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool {
+        let frames_behind: usize;
+        if let Some(last_confirmed_frame) = self.last_confirmed_frame {
+            frames_behind = self.frame_count - last_confirmed_frame;
+        } else {
+            frames_behind = self.frame_count + 1;
+        }
+
+        if self.frame_count >= self.max_prediction_frames
+            && frames_behind >= self.max_prediction_frames
+        {
+            info!("Rejecting input from emulator: reached prediction barrier.\n");
+            return false;
+        }
+
+        if self.frame_count == 0 {
+            self.save_current_frame();
+        }
+
+        info!(
+            "Sending undelayed local frame {} to queue {}.\n",
+            self.frame_count, queue
+        );
+
+        input.frame = Some(self.frame_count);
+        if let Some(input_queues) = &mut self.input_queues {
+            input_queues[queue].add_input(*input);
+        }
+
+        true
+    }
+
+    fn add_remote_input(&mut self, queue: usize, input: &GameInput) {
+        if let Some(input_queues) = &mut self.input_queues {
+            input_queues[queue].add_input(*input);
+        }
+    }
+
+    fn save_current_frame(&mut self) {
+        // Copying this for reference later.
+        // TODO: zstd compression
+        /*
+         * See StateCompress for the real save feature implemented by FinalBurn.
+         * Write everything into the head, then advance the head pointer.
+         */
+
+        // it was pointer arithmetic
+        let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
+
+        if let (Some(buffer), Some(callbacks)) = (state.buffer, &mut self.callbacks) {
+            // FIXME: figure out how to actually call this as a C-API
+            callbacks.free_buffer(buffer);
+
+            state.buffer = None;
+        }
+
+        state.frame = Some(self.frame_count);
+
+        if let Some(callbacks) = self.callbacks.as_mut() {
+            // FIXME: figure out how to actually call this as a C-API
+            callbacks.save_game_state(state.buffer, state.size, state.checksum, state.frame);
+        }
+
+        match (state.frame, state.checksum) {
+            (Some(frame), None) => info!(
+                "=== Saved frame info {} (size: {}  checksum: None).\n",
+                frame, state.size
+            ),
+            (Some(frame), Some(checksum)) => info!(
+                "=== Saved frame info {} (size: {}  checksum: {:#x}).\n",
+                frame, state.size, checksum
+            ),
+            _ => info!(
+                "=== Saved frame info None (size: {}  checksum: None).\n",
+                state.size
+            ),
+        }
+
+        self.saved_state.head += 1;
+    }
+
+    fn get_last_saved_frame(&self) -> SavedFrame<'a> {
+        let mut i: isize = self.saved_state.head as isize - 1;
+        if i < 0 {
+            i = self.saved_state.frames.len() as isize - 1;
+        }
+        self.saved_state.frames[i as usize]
+    }
+
+    fn find_saved_frame_index(&self, frame: Option<usize>) -> usize {
+        let count = self.saved_state.frames.len();
+        let mut j: usize = 0;
+
+        for i in 0..count {
+            if self.saved_state.frames[i].frame == frame {
+                break;
+            }
+            j = i;
+        }
+        if j == count {
+            assert!(false);
+        }
+
+        j
+    }
+
+    fn set_frame_delay(&mut self, queue: usize, delay: usize) {
+        if let Some(input_queues) = self.input_queues.as_mut() {
+            input_queues[queue].set_frame_delay(delay);
+        }
+    }
+
+    fn reset_prediction(&mut self, frame_number: usize) {
+        if let (Some(input_queues), Some(config)) =
+            (self.input_queues.as_mut(), self.config.as_ref())
+        {
+            for i in 0..config.num_players {
+                input_queues[i].reset_prediction(frame_number);
+            }
+        }
+    }
+
+    fn get_event(&mut self) -> Option<Event> {
+        self.event_queue.pop_front()
+    }
+
+    fn get_frame_count(&self) -> usize {
+        self.frame_count
+    }
+
+    fn in_rollback(&self) -> bool {
+        self.rolling_back
+    }
+
+    fn increment_frame(&mut self) {
+        self.frame_count += 1;
+        self.save_current_frame();
+    }
+
+    fn get_confirmed_inputs(
+        &mut self,
+        values: &mut Vec<InputBuffer>,
+        frame: Option<usize>,
+    ) -> usize {
+        let mut disconnect_flags = 0;
+
+        if let (Some(local_connect_status), Some(input_queues), Some(config)) = (
+            self.local_connect_status.as_ref(),
+            self.input_queues.as_ref(),
+            self.config.as_ref(),
+        ) {
+            assert!(values.capacity() >= config.num_players);
+
+            values.fill([b'0'; INPUT_BUFFER_SIZE]);
+            for i in 0..config.num_players {
+                let mut input: GameInput = GameInput::new();
+                if let Some(frame_value) = frame {
+                    if local_connect_status[i].disconnected > 0
+                        && frame_value as i32 > local_connect_status[i].last_frame
+                    {
+                        disconnect_flags |= 1 << i;
+                        input.erase();
+                    } else {
+                        input_queues[i].get_confirmed_input(frame, &mut input);
+                    }
+                    values[i] = input.bits;
+                }
+            }
+        } else {
+            error!("Warning: local_connect_status, Input queues, or config are null, wha happan?");
+        }
+
+        disconnect_flags
+    }
+
+    fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize {
+        let mut disconnect_flags: usize = 0;
+
+        if let (Some(local_connect_status), Some(input_queues), Some(config)) = (
+            self.local_connect_status.as_ref(),
+            self.input_queues.as_mut(),
+            self.config.as_ref(),
+        ) {
+            assert!(values.capacity() >= config.num_players);
+
+            values.fill([b'0'; INPUT_BUFFER_SIZE]);
+
+            for i in 0..config.num_players {
+                let mut input: GameInput = GameInput::new();
+                if local_connect_status[i].disconnected > 0
+                    && self.frame_count as i32 > local_connect_status[i].last_frame
+                {
+                    disconnect_flags |= 1 << i;
+                    input.erase();
+                } else {
+                    input_queues[i].get_input(self.frame_count, &mut input);
+                }
+                values[i] = input.bits;
+            }
+        } else {
+            error!("connect status, input queues, or config are None....wha happan?");
+        }
+
+        disconnect_flags
+    }
+
+    fn check_simulation(&mut self) {
+        let mut seek_to: usize = 0;
+        if !self.check_simulation_consistency(&mut seek_to) {
+            self.adjust_simulation(seek_to);
+        }
+    }
+
+    fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool {
+        let mut first_incorrect: Option<usize> = None;
+        if let (Some(input_queues), Some(config)) = (&self.input_queues, self.config.as_ref()) {
+            for i in 0..config.num_players {
+                if let Some(incorrect) = input_queues[i].get_first_incorrect_frame() {
+                    info!(
+                        "considering incorrect frame {} reported by queue {}.\n",
+                        incorrect, i
+                    );
+                    if let Some(f_cor) = first_incorrect {
+                        first_incorrect = if incorrect < f_cor {
+                            Some(incorrect)
+                        } else {
+                            first_incorrect
+                        }
+                    } else {
+                        first_incorrect = Some(incorrect);
+                    }
+                }
+            }
+        } else {
+            error!("Warning: Input queues or config are null, wha happan?");
+        }
+
+        if let Some(f_cor) = first_incorrect {
+            *seek_to = f_cor;
+        } else {
+            info!("prediction ok.  proceeding.\n");
+            return true;
+        }
+
+        false
+    }
+
+    fn adjust_simulation(&mut self, seek_to: usize) {
+        let framecount = self.frame_count;
+        let count = self.frame_count - seek_to;
+
+        info!("Catching up\n");
+        self.rolling_back = true;
+        /*
+         * Flush our input queue and load the last frame.
+         */
+        self.load_frame(Some(seek_to));
+        assert!(self.frame_count == seek_to);
+
+        /*
+         * Advance frame by frame (stuffing notifications back to
+         * the master).
+         */
+        self.reset_prediction(self.frame_count);
+        if let Some(callbacks) = &mut self.callbacks {
+            for i in 0..count {
+                callbacks.advance_frame(0);
+            }
+        }
+
+        assert!(self.frame_count == framecount);
+
+        self.rolling_back = false;
+
+        info!("---\n");
+    }
+
+    fn load_frame(&mut self, frame: Option<usize>) {
+        // find the frame in question
+        if frame == Some(self.frame_count) {
+            info!("Skipping NOP.\n");
+            return;
+        }
+
+        // Move the head pointer back and load it up
+        self.saved_state.head = self.find_saved_frame_index(frame);
+        let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
+
+        // info!(
+        //     "=== Loading frame info {} (size: {}  checksum: {:#X}).\n",
+        //     state.frame, state.size, state.checksum
+        // );
+    }
+}

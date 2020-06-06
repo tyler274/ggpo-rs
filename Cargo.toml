@@ -16,7 +16,7 @@ arraydeque = "0.4"
 log = "0.4"
 serde = "1.0"
 zstd = "0.5"
-
+libc = "0.2"
 
 [dependencies.mio]
 version = "0.7"
@@ -26,6 +26,4 @@ default-features = true
 
 [lib]
 name = "ggpo"
-# can't test dylib in repo yet, at least until the library is more fleshed and actually does something, 
-# we'll just build as a staticlib the way Ferris intended for now. 
-# crate-type = ["dylib", "staticlib"] 
+crate-type = ["cdylib", "staticlib"] 

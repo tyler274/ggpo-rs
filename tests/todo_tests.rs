@@ -1,5 +1,3 @@
-use ggpo::player;
-
 #[test]
 fn it_works() {
     // let v = player::GGPOPlayer { player_num: 1 , player_type: player::GGPOPlayer::L};

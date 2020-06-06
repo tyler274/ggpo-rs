@@ -10,15 +10,15 @@ pub enum MsgType {
 }
 
 pub struct ConnectStatus {
-    disconnected: i32,
-    last_frame: i32,
+    pub disconnected: i32,
+    pub last_frame: i32,
 }
 
 impl Default for ConnectStatus {
     fn default() -> Self {
         ConnectStatus {
-            disconnected: 0,
-            last_frame: 0,
+            disconnected: 1,
+            last_frame: 31,
         }
     }
 }

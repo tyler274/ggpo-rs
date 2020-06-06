@@ -5,20 +5,25 @@ use log::info;
 
 pub const GAMEINPUT_MAX_BYTES: usize = 9;
 pub const GAMEINPUT_MAX_PLAYERS: usize = 2;
+pub const INPUT_BUFFER_SIZE: usize = GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS;
+pub type InputBuffer = [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct GameInput {
     pub frame: Option<usize>,
     pub size: usize,
-    bits: [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
+    pub bits: InputBuffer,
 }
 
 impl GameInput {
-    pub fn init(
-        frame: Option<usize>,
-        bits: Option<&[u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS]>,
-        size: usize,
-    ) -> GameInput {
+    pub fn new() -> Self {
+        GameInput {
+            frame: None,
+            size: 0,
+            bits: [b'0'; INPUT_BUFFER_SIZE],
+        }
+    }
+    pub fn init(frame: Option<usize>, bits: Option<&InputBuffer>, size: usize) -> GameInput {
         assert!(size <= GAMEINPUT_MAX_BYTES);
         if let Some(i_bits) = bits {
             GameInput {
@@ -50,7 +55,7 @@ impl GameInput {
         (self.bits[i / 8] & (1 << (i % 8))) != 0
     }
     fn set(&mut self, i: usize) {
-        self.bits[i / 8] |= (1 << (i % 8));
+        self.bits[i / 8] |= 1 << (i % 8);
     }
     fn clear(&mut self, i: usize) {
         self.bits[i / 8] &= !(1 << (i % 8));

@@ -28,7 +28,7 @@ pub struct InputQueue {
     first_incorrect_frame: Option<usize>,
     last_frame_requested: Option<usize>,
 
-    frame_delay: i32,
+    frame_delay: usize,
 
     inputs: [game_input::GameInput; INPUT_QUEUE_LENGTH],
     prediction: game_input::GameInput,
@@ -85,6 +85,27 @@ impl InputQueue {
             ); INPUT_QUEUE_LENGTH],
         }
     }
+    pub fn get_confirmed_input(
+        &self,
+        requested_frame: Option<usize>,
+        input: &mut game_input::GameInput,
+    ) -> bool {
+        if let Some(first_incorrect_frame) = self.first_incorrect_frame {
+            assert!(requested_frame < self.first_incorrect_frame);
+        }
+
+        if let Some(requested_frame_value) = requested_frame {
+            let offset = requested_frame_value % INPUT_QUEUE_LENGTH;
+
+            if self.inputs[offset].frame != requested_frame {
+                return false;
+            }
+            *input = self.inputs[offset].clone();
+            return true;
+        }
+
+        false
+    }
     pub fn get_last_confirmed_frame(&self) -> Option<usize> {
         if let Some(frame) = self.last_added_frame {
             info!("returning last confirmed frame: {}\n", frame);
@@ -93,6 +114,10 @@ impl InputQueue {
         }
 
         self.last_added_frame
+    }
+
+    pub fn set_frame_delay(&mut self, delay: usize) {
+        self.frame_delay = delay;
     }
 
     pub fn get_first_incorrect_frame(&self) -> Option<usize> {
