@@ -12,7 +12,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         toolchain: [stable, nightly]
-        experimental: [true]
+        experimental: [false]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1

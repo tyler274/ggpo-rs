@@ -63,6 +63,8 @@ impl<'a> SavedFrame<'a> {
     }
 }
 
+const BLANK_FRAME: SavedFrame = SavedFrame::new();
+
 struct SavedState<'a> {
     frames: [SavedFrame<'a>; MAX_PREDICTION_FRAMES + 2],
     head: usize,
@@ -86,7 +88,6 @@ pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
 
 impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
     fn default() -> Sync<'a, 'b, T> {
-        const blank_frame: SavedFrame = SavedFrame::new();
         Sync {
             local_connect_status: None,
             frame_count: 0,
@@ -94,7 +95,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
             max_prediction_frames: 0,
             saved_state: SavedState {
                 head: 0,
-                frames: [blank_frame; MAX_PREDICTION_FRAMES + 2],
+                frames: [BLANK_FRAME; MAX_PREDICTION_FRAMES + 2],
             },
             callbacks: None,
             config: None,
