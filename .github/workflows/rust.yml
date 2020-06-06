@@ -49,7 +49,8 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: rustup component add rustfmt
+          components: rustfmt
+      # - run: rustup component add rustfmt
       - uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -58,14 +59,18 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable, nightly]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          components: clippy
+          toolchain: ${{ matrix.toolchain }}
           override: true
-      - run: rustup component add clippy
+      # - run: rustup component add clippy
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
