@@ -47,7 +47,7 @@ jobs:
           command: test
 
   fmt:
-    name: Rustfmt
+    name: Rustfmt (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -67,7 +67,7 @@ jobs:
           args: --all -- --check
 
   clippy:
-    name: Clippy
+    name: Clippy (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.experimental }}
     strategy:
