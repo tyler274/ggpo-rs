@@ -25,6 +25,16 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+  
+  build:
+    name: ${{ matrix.os }} nightly
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+
+    steps:
+    - uses: actions/checkout@v2
 
     - name: Install nightly
       uses: actions-rs/toolchain@v1
@@ -34,6 +44,9 @@ jobs:
 
     - name: Build nightly
       run: cargo build --verbose
+
+    - name: Run tests
+      run: cargo test --verbose
     
 
   # test:
