@@ -159,17 +159,20 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     }
 
     fn create_queues(&mut self) -> bool {
-        if let Some(config) = &self.config {
-            self.input_queues = Some(Vec::with_capacity(config.num_players));
-
-            if let Some(input_queues) = &mut self.input_queues {
+        match (&self.config, &mut self.input_queues) {
+            (Some(config), None) => {
+                self.input_queues = Some(Vec::with_capacity(config.num_players));
+                return self.create_queues();
+            }
+            (Some(config), Some(input_queues)) => {
                 for i in 0..config.num_players {
                     input_queues[i] = InputQueue::init(i, config.input_size);
                 }
             }
-        } else {
-            error!("Config is None");
-            return false;
+            (None, _) => {
+                error!("Config is None and not initialized");
+                return false;
+            }
         }
 
         true
@@ -177,30 +180,35 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
 
     fn set_last_confirmed_frame(&mut self, frame: Option<usize>) {
         self.last_confirmed_frame = frame;
-        // match (self.last_confirmed_frame, self.config.as_ref()) {
-        //     (Some(last_confirmed_frane), Some())
-        // }
-        if let (Some(last_confirmed_frame), Some(config)) =
-            (self.last_confirmed_frame, self.config.as_ref())
-        {
-            if last_confirmed_frame > 0 {
-                if let Some(input_queues) = &mut self.input_queues {
+        match (
+            self.last_confirmed_frame,
+            self.config.as_ref(),
+            &mut self.input_queues,
+        ) {
+            (Some(last_confirmed_frame), Some(config), Some(input_queues)) => {
+                if last_confirmed_frame > 0 {
                     for i in 0..config.num_players {
                         input_queues[i].discard_confirmed_frames(last_confirmed_frame - 1);
                     }
                 }
             }
-        } else {
-            // FIXME: Use a match here to error on config only.
+            (_, None, _) => error!("Config not initialized"),
+            (_, _, None) => {
+                // Recurse here if we hit this arm with the input queues as None after initializing them.
+                warn!("Input queues weren't initialized, handling it now");
+                self.create_queues();
+                self.set_last_confirmed_frame(frame);
+            }
+            // If last_confirmed_frame is null, just move on.
+            _ => (),
         }
     }
 
     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool {
         let frames_behind: usize;
-        if let Some(last_confirmed_frame) = self.last_confirmed_frame {
-            frames_behind = self.frame_count - last_confirmed_frame;
-        } else {
-            frames_behind = self.frame_count + 1;
+        match self.last_confirmed_frame {
+            Some(last_confirmed_frame) => frames_behind = self.frame_count - last_confirmed_frame,
+            None => frames_behind = self.frame_count + 1,
         }
 
         if self.frame_count >= self.max_prediction_frames
@@ -220,8 +228,16 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         );
 
         input.frame = Some(self.frame_count);
-        if let Some(input_queues) = &mut self.input_queues {
-            input_queues[queue].add_input(*input);
+
+        match &mut self.input_queues {
+            Some(input_queues) => input_queues[queue].add_input(*input),
+            None => {
+                // TODO: Decide if attempting to handle failures to init like this elsewhere.
+                self.create_queues();
+                if let Some(input_queues) = &mut self.input_queues {
+                    input_queues[queue].add_input(*input);
+                }
+            }
         }
 
         true
@@ -321,18 +337,29 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     }
 
     fn set_frame_delay(&mut self, queue: usize, delay: usize) {
-        if let Some(input_queues) = self.input_queues.as_mut() {
-            input_queues[queue].set_frame_delay(delay);
+        match self.input_queues.as_mut() {
+            Some(input_queues) => input_queues[queue].set_frame_delay(delay),
+            None => {
+                warn!("Attempting to use input queues before initializing them, handling it");
+                self.create_queues();
+                self.set_frame_delay(queue, delay);
+            }
         }
     }
 
     fn reset_prediction(&mut self, frame_number: usize) {
-        if let (Some(input_queues), Some(config)) =
-            (self.input_queues.as_mut(), self.config.as_ref())
-        {
-            for i in 0..config.num_players {
-                input_queues[i].reset_prediction(frame_number);
+        match (self.input_queues.as_mut(), self.config.as_ref()) {
+            (Some(input_queues), Some(config)) => {
+                for i in 0..config.num_players {
+                    input_queues[i].reset_prediction(frame_number);
+                }
             }
+            (None, Some(_)) => {
+                warn!("Attempting to use input queues before initializing them, handling it");
+                self.create_queues();
+                self.reset_prediction(frame_number);
+            }
+            (_, None) => error!("Config is uninitialized"),
         }
     }
 
@@ -360,30 +387,41 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     ) -> usize {
         let mut disconnect_flags = 0;
 
-        if let (Some(local_connect_status), Some(input_queues), Some(config)) = (
+        match (
             self.local_connect_status.as_ref(),
             self.input_queues.as_ref(),
             self.config.as_ref(),
         ) {
-            assert!(values.capacity() >= config.num_players);
+            (Some(local_connect_status), Some(input_queues), Some(config)) => {
+                assert!(values.capacity() >= config.num_players);
 
-            values.fill([b'0'; INPUT_BUFFER_SIZE]);
-            for i in 0..config.num_players {
-                let mut input: GameInput = GameInput::new();
-                if let Some(frame_value) = frame {
-                    if local_connect_status[i].disconnected > 0
-                        && frame_value as i32 > local_connect_status[i].last_frame
-                    {
-                        disconnect_flags |= 1 << i;
-                        input.erase();
-                    } else {
-                        input_queues[i].get_confirmed_input(frame, &mut input);
+                values.fill([b'0'; INPUT_BUFFER_SIZE]);
+                for i in 0..config.num_players {
+                    let mut input: GameInput = GameInput::new();
+                    if let Some(frame_value) = frame {
+                        if local_connect_status[i].disconnected > 0
+                            && frame_value as i32 > local_connect_status[i].last_frame
+                        {
+                            disconnect_flags |= 1 << i;
+                            input.erase();
+                        } else {
+                            input_queues[i].get_confirmed_input(frame, &mut input);
+                        }
+                        values[i] = input.bits;
                     }
-                    values[i] = input.bits;
                 }
             }
-        } else {
-            error!("Warning: local_connect_status, Input queues, or config are null, wha happan?");
+            (Some(_), None, Some(_)) => {
+                warn!("Attempting to use input queues before initializing them, handling it");
+                self.create_queues();
+                return self.get_confirmed_inputs(values, frame);
+            }
+            (Some(_), None, None) => error!("input_queues, and config are None"),
+            (None, Some(_), None) => error!("local_connect_status, config are None"),
+            (None, None, Some(_)) => error!("local_connect_status, and input_queues are None"),
+            (None, Some(_), Some(_)) => error!("local_connect_status is None"),
+            (Some(_), Some(_), None) => error!("config is None"),
+            (None, None, None) => error!("local_connect_status, input_queues, and config are None"),
         }
 
         disconnect_flags
@@ -392,29 +430,40 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize {
         let mut disconnect_flags: usize = 0;
 
-        if let (Some(local_connect_status), Some(input_queues), Some(config)) = (
+        match (
             self.local_connect_status.as_ref(),
             self.input_queues.as_mut(),
             self.config.as_ref(),
         ) {
-            assert!(values.capacity() >= config.num_players);
+            (Some(local_connect_status), Some(input_queues), Some(config)) => {
+                assert!(values.capacity() >= config.num_players);
 
-            values.fill([b'0'; INPUT_BUFFER_SIZE]);
+                values.fill([b'0'; INPUT_BUFFER_SIZE]);
 
-            for i in 0..config.num_players {
-                let mut input: GameInput = GameInput::new();
-                if local_connect_status[i].disconnected > 0
-                    && self.frame_count as i32 > local_connect_status[i].last_frame
-                {
-                    disconnect_flags |= 1 << i;
-                    input.erase();
-                } else {
-                    input_queues[i].get_input(self.frame_count, &mut input);
+                for i in 0..config.num_players {
+                    let mut input: GameInput = GameInput::new();
+                    if local_connect_status[i].disconnected > 0
+                        && self.frame_count as i32 > local_connect_status[i].last_frame
+                    {
+                        disconnect_flags |= 1 << i;
+                        input.erase();
+                    } else {
+                        input_queues[i].get_input(self.frame_count, &mut input);
+                    }
+                    values[i] = input.bits;
                 }
-                values[i] = input.bits;
             }
-        } else {
-            error!("connect status, input queues, or config are None....wha happan?");
+            (Some(_), None, Some(_)) => {
+                warn!("Attempting to use input queues before initializing them, handling it");
+                self.create_queues();
+                return self.synchronize_inputs(values);
+            }
+            (Some(_), None, None) => error!("input_queues, and config are None"),
+            (None, Some(_), None) => error!("local_connect_status, config are None"),
+            (None, None, Some(_)) => error!("local_connect_status, and input_queues are None"),
+            (None, Some(_), Some(_)) => error!("local_connect_status is None"),
+            (Some(_), Some(_), None) => error!("config is None"),
+            (None, None, None) => error!("local_connect_status, input_queues, and config are None"),
         }
 
         disconnect_flags
@@ -429,26 +478,33 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
 
     fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool {
         let mut first_incorrect: Option<usize> = None;
-        if let (Some(input_queues), Some(config)) = (&self.input_queues, self.config.as_ref()) {
-            for i in 0..config.num_players {
-                if let Some(incorrect) = input_queues[i].get_first_incorrect_frame() {
-                    info!(
-                        "considering incorrect frame {} reported by queue {}.\n",
-                        incorrect, i
-                    );
-                    if let Some(f_cor) = first_incorrect {
-                        first_incorrect = if incorrect < f_cor {
-                            Some(incorrect)
-                        } else {
-                            first_incorrect
+
+        match (&self.input_queues, self.config.as_ref()) {
+            (Some(input_queues), Some(config)) => {
+                for i in 0..config.num_players {
+                    match (input_queues[i].get_first_incorrect_frame(), first_incorrect) {
+                        (Some(incorrect), Some(f_cor)) => {
+                            info!(
+                                "considering incorrect frame {} reported by queue {}.\n",
+                                incorrect, i
+                            );
+                            first_incorrect = if incorrect < f_cor {
+                                Some(incorrect)
+                            } else {
+                                first_incorrect
+                            }
                         }
-                    } else {
-                        first_incorrect = Some(incorrect);
+                        (Some(incorrect), None) => (first_incorrect = Some(incorrect)),
+                        (None, _) => (),
                     }
                 }
             }
-        } else {
-            error!("Warning: Input queues or config are null, wha happan?");
+            (None, Some(_)) => {
+                warn!("Attempting to use input queues before initializing them, handling it");
+                self.create_queues();
+                return self.check_simulation_consistency(seek_to);
+            }
+            (_, None) => error!("config is None"),
         }
 
         if let Some(f_cor) = first_incorrect {
