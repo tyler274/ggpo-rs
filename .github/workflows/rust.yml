@@ -4,7 +4,7 @@ name: Continuous integration
 
 jobs:
   check:
-    name: Check ${{ matrix.os }} ${{ matrix.toolchain }}
+    name: Check ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -22,7 +22,7 @@ jobs:
           command: check
 
   test:
-    name: Test Suite  ${{ matrix.os }} ${{ matrix.toolchain }}
+    name: Test Suite  ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
