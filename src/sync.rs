@@ -500,7 +500,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
 
         // Move the head pointer back and load it up
         self.saved_state.head = self.find_saved_frame_index(frame);
-        let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
+        let state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
 
         match (state.frame, state.checksum) {
             (Some(frame), Some(checksum)) => info!(

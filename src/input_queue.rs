@@ -90,7 +90,7 @@ impl InputQueue {
         requested_frame: Option<usize>,
         input: &mut game_input::GameInput,
     ) -> bool {
-        if let Some(first_incorrect_frame) = self.first_incorrect_frame {
+        if let Some(_first_incorrect_frame) = self.first_incorrect_frame {
             assert!(requested_frame < self.first_incorrect_frame);
         }
 
