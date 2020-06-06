@@ -44,16 +44,16 @@ pub struct Event {
     input: GameInput,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub struct SavedFrame<'a> {
     size: usize,
     frame: Option<usize>,
     checksum: Option<usize>,
-    buffer: Option<&'a [u8]>,
+    buffer: Option<&'a mut [u8]>,
 }
 
 impl<'a> SavedFrame<'a> {
-    fn new() -> Self {
+    const fn new() -> Self {
         SavedFrame {
             size: 0,
             frame: None,
@@ -86,6 +86,7 @@ pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
 
 impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
     fn default() -> Sync<'a, 'b, T> {
+        const blank_frame: SavedFrame = SavedFrame::new();
         Sync {
             local_connect_status: None,
             frame_count: 0,
@@ -93,7 +94,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
             max_prediction_frames: 0,
             saved_state: SavedState {
                 head: 0,
-                frames: [SavedFrame::new(); MAX_PREDICTION_FRAMES + 2],
+                frames: [blank_frame; MAX_PREDICTION_FRAMES + 2],
             },
             callbacks: None,
             config: None,
@@ -131,7 +132,7 @@ pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
     fn load_frame(&mut self, frame: Option<usize>);
     fn save_current_frame(&mut self);
     fn find_saved_frame_index(&self, frame: Option<usize>) -> usize;
-    fn get_last_saved_frame(&self) -> SavedFrame<'a>;
+    fn get_last_saved_frame(&self) -> &SavedFrame<'a>;
 
     fn create_queues(&mut self) -> bool;
     fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool;
@@ -147,18 +148,11 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     }
 
     fn init(&mut self, config: &'a mut Config<'a, T>) {
-        self.config = Some(config);
-        // Config {
-        //     callbacks: config.callbacks,
-        //     num_prediction_frames: config.num_prediction_frames,
-        //     num_players: config.num_players,
-        //     input_size: config.input_size,
-        // };
         // self.callbacks = config.callbacks;
-        // self.frame_count = 0;
-        // self.rolling_back = false;
-
-        // self.max_prediction_frames = config.num_prediction_frames;
+        self.max_prediction_frames = config.num_prediction_frames;
+        self.config = Some(config);
+        self.frame_count = 0;
+        self.rolling_back = false;
 
         self.create_queues();
     }
@@ -182,6 +176,9 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
 
     fn set_last_confirmed_frame(&mut self, frame: Option<usize>) {
         self.last_confirmed_frame = frame;
+        // match (self.last_confirmed_frame, self.config.as_ref()) {
+        //     (Some(last_confirmed_frane), Some())
+        // }
         if let (Some(last_confirmed_frame), Some(config)) =
             (self.last_confirmed_frame, self.config.as_ref())
         {
@@ -245,19 +242,38 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
 
         // it was pointer arithmetic
         let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
-
-        if let (Some(buffer), Some(callbacks)) = (state.buffer, &mut self.callbacks) {
-            // FIXME: figure out how to actually call this as a C-API
-            callbacks.free_buffer(buffer);
-
-            state.buffer = None;
+        match (&mut self.config, &mut state.buffer) {
+            (
+                Some(Config {
+                    callbacks: Some(callbacks),
+                    ..
+                }),
+                Some(buffer),
+            ) => {
+                callbacks.free_buffer(buffer);
+                state.buffer = None;
+            }
+            (
+                Some(Config {
+                    callbacks: None, ..
+                }),
+                _,
+            ) => error!("Callbacks not initialized"),
+            (None, _) => error!("Config not initialized"),
+            (_, None) => error!("Saved frame state buffer not initialized"),
         }
 
         state.frame = Some(self.frame_count);
-
-        if let Some(callbacks) = self.callbacks.as_mut() {
-            // FIXME: figure out how to actually call this as a C-API
-            callbacks.save_game_state(state.buffer, state.size, state.checksum, state.frame);
+        match self.callbacks.as_mut() {
+            Some(callbacks) => {
+                callbacks.save_game_state(
+                    state.buffer.as_deref_mut(),
+                    &state.size,
+                    state.checksum,
+                    state.frame,
+                );
+            }
+            None => error!("Callbacks not initialized"),
         }
 
         match (state.frame, state.checksum) {
@@ -278,12 +294,12 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         self.saved_state.head += 1;
     }
 
-    fn get_last_saved_frame(&self) -> SavedFrame<'a> {
+    fn get_last_saved_frame(&self) -> &SavedFrame<'a> {
         let mut i: isize = self.saved_state.head as isize - 1;
         if i < 0 {
             i = self.saved_state.frames.len() as isize - 1;
         }
-        self.saved_state.frames[i as usize]
+        &self.saved_state.frames[i as usize]
     }
 
     fn find_saved_frame_index(&self, frame: Option<usize>) -> usize {
@@ -485,9 +501,38 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         self.saved_state.head = self.find_saved_frame_index(frame);
         let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
 
-        // info!(
-        //     "=== Loading frame info {} (size: {}  checksum: {:#X}).\n",
-        //     state.frame, state.size, state.checksum
-        // );
+        match (state.frame, state.checksum) {
+            (Some(frame), Some(checksum)) => info!(
+                "=== Loading frame info {} (size: {}  checksum: {:#X}).\n",
+                frame, state.size, checksum
+            ),
+            (Some(frame), _) => info!(
+                "=== Loading frame info {} (size: {}  checksum: None).\n",
+                frame, state.size,
+            ),
+            (None, _) => info!(
+                "=== Loading frame info None (size: {}  checksum: None).\n",
+                state.size,
+            ),
+        }
+
+        assert!(state.buffer != None && state.size > 0);
+
+        match (&mut self.callbacks, &mut state.buffer) {
+            (Some(callbacks), Some(buffer)) => {
+                callbacks.load_game_state(buffer, state.size);
+            }
+            (None, _) => error!("Callbacks not initialized!"),
+            (_, None) => error!("State buffer not initialized"),
+        };
+
+        // Reset framecount and the head of the state ring-buffer to point in
+        // advance of the current frame (as if we had just finished executing it).
+        self.frame_count = if let Some(frame) = state.frame {
+            frame
+        } else {
+            self.frame_count
+        };
+        self.saved_state.head = self.saved_state.head + 1;
     }
 }

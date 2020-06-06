@@ -3,6 +3,7 @@
 #![feature(const_panic)]
 // #![feature(const_generics)]
 #![feature(slice_fill)]
+// #![feature(const_in_array_repeat_expressions)]
 
 pub mod backends;
 pub mod game_input;

@@ -98,8 +98,8 @@ pub trait GGPOSessionCallbacks: Clone + Sized {
      */
     fn save_game_state(
         &mut self,
-        buffer: Option<&[u8]>,
-        length: usize,
+        buffer: Option<&mut [u8]>,
+        length: &usize,
         checksum: Option<usize>,
         frame: Option<usize>,
     ) -> bool;
