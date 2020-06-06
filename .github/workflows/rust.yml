@@ -6,10 +6,13 @@ jobs:
   check:
     name: Check ${{ matrix.os }} (${{ matrix.toolchain }})
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
         toolchain: [stable, nightly]
+        experimental: [true]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -25,6 +28,7 @@ jobs:
     name: Test Suite  ${{ matrix.os }} (${{ matrix.toolchain }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
         toolchain: [nightly]
