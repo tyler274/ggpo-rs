@@ -69,9 +69,14 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       matrix:
-        toolchain: [stable]
+        toolchain: [stable, nightly]
+        experimental: [false]
+        include:
+          - toolchain: stable
+            experimental: true
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
