@@ -8,22 +8,23 @@ pub const GAMEINPUT_MAX_PLAYERS: usize = 2;
 pub const INPUT_BUFFER_SIZE: usize = GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS;
 pub type InputBuffer = [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
 
+pub type Frame = Option<usize>;
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct GameInput {
-    pub frame: Option<usize>,
+    pub frame: Frame,
     pub size: usize,
     pub bits: InputBuffer,
 }
 
 impl GameInput {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         GameInput {
             frame: None,
             size: 0,
             bits: [b'0'; INPUT_BUFFER_SIZE],
         }
     }
-    pub fn init(frame: Option<usize>, bits: Option<&InputBuffer>, size: usize) -> GameInput {
+    pub fn init(frame: Frame, bits: Option<&InputBuffer>, size: usize) -> GameInput {
         assert!(size <= GAMEINPUT_MAX_BYTES);
         if let Some(i_bits) = bits {
             GameInput {

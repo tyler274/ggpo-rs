@@ -232,7 +232,6 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         match &mut self.input_queues {
             Some(input_queues) => input_queues[queue].add_input(*input),
             None => {
-                // TODO: Decide if attempting to handle failures to init like this elsewhere.
                 self.create_queues();
                 if let Some(input_queues) = &mut self.input_queues {
                     input_queues[queue].add_input(*input);
@@ -534,10 +533,13 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
          * the master).
          */
         self.reset_prediction(self.frame_count);
+
         if let Some(callbacks) = &mut self.callbacks {
-            for i in 0..count {
+            for _i in 0..count {
                 callbacks.advance_frame(0);
             }
+        } else {
+            error!("Callbacks are uninitialized");
         }
 
         assert!(self.frame_count == framecount);

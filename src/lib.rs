@@ -12,3 +12,4 @@ pub mod input_queue;
 pub mod network;
 pub mod player;
 pub mod sync;
+pub mod time_sync;
