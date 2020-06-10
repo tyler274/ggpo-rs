@@ -29,7 +29,7 @@ struct Header {
     packet_type: MsgType,
 }
 
-const UDP_MSG_MAX_PLAYERS: usize = 4;
+pub const UDP_MSG_MAX_PLAYERS: usize = 4;
 const MAX_COMPRESSED_BITS: usize = 4096;
 
 pub enum MsgEnum {

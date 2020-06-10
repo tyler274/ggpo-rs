@@ -26,31 +26,18 @@ impl GameInput {
     }
     pub fn init(frame: Frame, bits: Option<&InputBuffer>, size: usize) -> GameInput {
         assert!(size <= GAMEINPUT_MAX_BYTES);
-        if let Some(i_bits) = bits {
-            GameInput {
+        match bits {
+            Some(i_bits) => GameInput {
                 frame,
                 size,
                 bits: i_bits.clone(),
-            }
-        } else {
-            GameInput {
+            },
+            None => GameInput {
                 frame,
                 size,
                 bits: [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
-            }
+            },
         }
-        // match bits {
-        //     Some(i_bits) => GameInput {
-        //         frame,
-        //         size,
-        //         bits: i_bits.clone(),
-        //     },
-        //     None => GameInput {
-        //         frame,
-        //         size,
-        //         bits: [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
-        //     },
-        // }
     }
     const fn value(&self, i: usize) -> bool {
         (self.bits[i / 8] & (1 << (i % 8))) != 0

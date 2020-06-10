@@ -1,8 +1,8 @@
 use mio::net::UdpSocket;
-// use mio::{Events, Poll, Token};
+use mio::{Events, Poll, Token};
 // use serde::{Deserialize, Serialize};
 // use std::env;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 // use std::time::Duration;
 
 use crate::network::udp_msg::UdpMsg;
@@ -12,37 +12,25 @@ const SERVER_ADDR: &'static str = "127.0.0.1:12345";
 // The client address from where the data is sent.
 const CLIENT_ADDR: &'static str = "127.0.0.1:12346";
 
-enum State {
-    Syncing,
-    Synchronized,
-    Running,
-    Disconnected,
+struct Callbacks {}
+
+impl Callbacks {
+    fn on_msg(from: &SocketAddr, msg: &UdpMsg, len: usize) {}
 }
 
-struct QueueEntry {
-    queue_time: i32,
-    dest_addr: SocketAddr,
-    msg: *mut UdpMsg,
+pub struct Udp<'callbacks, 'poll> {
+    // Network transmission information
+    socket: UdpSocket,
+
+    // state management
+    callbacks: &'callbacks mut Callbacks,
+    poll: &'poll mut Poll,
 }
 
-impl QueueEntry {
-    pub fn new(time: i32, dst: &SocketAddr, m: *mut UdpMsg) -> QueueEntry {
-        QueueEntry {
-            queue_time: time,
-            dest_addr: *dst,
-            msg: m,
-        }
-    }
-}
-
-pub struct Udp {
-    socket: *mut UdpSocket,
-}
-
-impl Udp {
-    // pub fn new() -> Udp {
+impl<'callbacks, 'poll> Udp<'callbacks, 'poll> {
+    // pub fn new() -> Self {
     //     Udp {
-    //         socket: Socket::bind(),
+    //         socket: SocketAddr::new(ip, port),
     //     }
     // }
 }

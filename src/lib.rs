@@ -5,11 +5,17 @@
 #![feature(slice_fill)]
 // #![feature(const_in_array_repeat_expressions)]
 
-pub mod backends;
+pub mod backends {
+    pub mod p2p;
+}
 pub mod game_input;
 pub mod ggpo;
 pub mod input_queue;
-pub mod network;
+pub mod network {
+    pub mod udp;
+    pub mod udp_msg;
+    pub mod udp_proto;
+}
 pub mod player;
 pub mod sync;
 pub mod time_sync;

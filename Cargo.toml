@@ -11,7 +11,7 @@ homepage = "https://github.com/tyler274/ggpo-rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bit-vec = "0.6"
+# bit-vec = "0.6"
 arraydeque = "0.4"
 log = "0.4"
 # serde = "1.0"
