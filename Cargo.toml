@@ -23,7 +23,10 @@ version = "0.7"
 features = ["udp"]
 default-features = true
 
-
 [lib]
 name = "ggpo"
 crate-type = ["cdylib", "staticlib"] 
+
+# for examples, tests, and benches
+[dev-dependencies]
+tempdir = "0.3"

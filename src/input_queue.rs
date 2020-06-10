@@ -1,4 +1,4 @@
-use crate::game_input;
+use crate::game_input::{Frame, GameInput, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS};
 use log::info;
 use std::cmp;
 
@@ -23,15 +23,15 @@ pub struct InputQueue {
     length: usize,
     first_frame: bool,
 
-    last_user_added_frame: Option<usize>,
-    last_added_frame: Option<usize>,
-    first_incorrect_frame: Option<usize>,
-    last_frame_requested: Option<usize>,
+    last_user_added_frame: Frame,
+    last_added_frame: Frame,
+    first_incorrect_frame: Frame,
+    last_frame_requested: Frame,
 
     frame_delay: usize,
 
-    inputs: [game_input::GameInput; INPUT_QUEUE_LENGTH],
-    prediction: game_input::GameInput,
+    inputs: [GameInput; INPUT_QUEUE_LENGTH],
+    prediction: GameInput,
 }
 
 impl Default for InputQueue {
@@ -48,10 +48,10 @@ impl Default for InputQueue {
             first_incorrect_frame: None,
             last_frame_requested: None,
 
-            prediction: game_input::GameInput::init(None, None, DEFAULT_INPUT_SIZE),
-            inputs: [game_input::GameInput::init(
+            prediction: GameInput::init(None, None, DEFAULT_INPUT_SIZE),
+            inputs: [GameInput::init(
                 None,
-                Some(&[b'0'; game_input::GAMEINPUT_MAX_BYTES * game_input::GAMEINPUT_MAX_PLAYERS]),
+                Some(&[b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS]),
                 DEFAULT_INPUT_SIZE,
             ); INPUT_QUEUE_LENGTH],
         }
@@ -77,19 +77,15 @@ impl InputQueue {
             first_incorrect_frame: None,
             last_frame_requested: None,
 
-            prediction: game_input::GameInput::init(None, None, input_size),
-            inputs: [game_input::GameInput::init(
+            prediction: GameInput::init(None, None, input_size),
+            inputs: [GameInput::init(
                 None,
-                Some(&[b'0'; game_input::GAMEINPUT_MAX_BYTES * game_input::GAMEINPUT_MAX_PLAYERS]),
+                Some(&[b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS]),
                 input_size,
             ); INPUT_QUEUE_LENGTH],
         }
     }
-    pub fn get_confirmed_input(
-        &self,
-        requested_frame: Option<usize>,
-        input: &mut game_input::GameInput,
-    ) -> bool {
+    pub fn get_confirmed_input(&self, requested_frame: Frame, input: &mut GameInput) -> bool {
         if let Some(_first_incorrect_frame) = self.first_incorrect_frame {
             assert!(requested_frame < self.first_incorrect_frame);
         }
@@ -106,7 +102,7 @@ impl InputQueue {
 
         false
     }
-    pub fn get_last_confirmed_frame(&self) -> Option<usize> {
+    pub fn get_last_confirmed_frame(&self) -> Frame {
         if let Some(frame) = self.last_added_frame {
             info!("returning last confirmed frame: {}\n", frame);
         } else {
@@ -120,7 +116,7 @@ impl InputQueue {
         self.frame_delay = delay;
     }
 
-    pub fn get_first_incorrect_frame(&self) -> Option<usize> {
+    pub fn get_first_incorrect_frame(&self) -> Frame {
         self.first_incorrect_frame
     }
 
@@ -169,7 +165,7 @@ impl InputQueue {
         self.last_frame_requested = None;
     }
 
-    pub fn get_input(&mut self, requested_frame: usize, input: &mut game_input::GameInput) -> bool {
+    pub fn get_input(&mut self, requested_frame: usize, input: &mut GameInput) -> bool {
         info!("requesting input frame {}.\n", requested_frame);
 
         /*
@@ -253,11 +249,7 @@ impl InputQueue {
         false
     }
 
-    pub fn add_delayed_input_to_queue(
-        &mut self,
-        input: &game_input::GameInput,
-        frame_number: usize,
-    ) {
+    pub fn add_delayed_input_to_queue(&mut self, input: &GameInput, frame_number: usize) {
         info!(
             "adding delayed input frame number {} to queue.\n",
             frame_number
@@ -320,8 +312,8 @@ impl InputQueue {
         assert!(self.length <= INPUT_QUEUE_LENGTH);
     }
 
-    pub fn add_input(&mut self, mut input: game_input::GameInput) {
-        // let new_frame: Option<usize> =;
+    pub fn add_input(&mut self, mut input: GameInput) {
+        // let new_frame: Frame =;
         if let Some(input_frame) = input.frame {
             info!("adding input frame number {} to queue.\n", input_frame);
 
@@ -354,8 +346,8 @@ impl InputQueue {
         }
     }
 
-    pub fn advance_queue_head(&mut self, i_frame: Option<usize>) -> Option<usize> {
-        if let Some(frame) = i_frame {
+    pub fn advance_queue_head(&mut self, input_frame: Frame) -> Frame {
+        if let Some(frame) = input_frame {
             info!("advancing queue head to frame {}.\n", frame);
             if let Some(input_previous_head) =
                 self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)].frame
@@ -389,7 +381,7 @@ impl InputQueue {
                         "Adding padding frame {} to account for change in frame delay.\n",
                         expected_frame
                     );
-                    let last_frame_input: game_input::GameInput =
+                    let last_frame_input: GameInput =
                         self.inputs[previous_frame!(self.head, INPUT_QUEUE_LENGTH)];
 
                     self.add_delayed_input_to_queue(&last_frame_input, expected_frame);
@@ -400,6 +392,6 @@ impl InputQueue {
             }
             return Some(frame);
         }
-        i_frame
+        input_frame
     }
 }

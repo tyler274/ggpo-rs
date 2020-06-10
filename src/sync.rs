@@ -1,4 +1,4 @@
-use crate::game_input::{GameInput, InputBuffer, INPUT_BUFFER_SIZE};
+use crate::game_input::{Frame, GameInput, InputBuffer, INPUT_BUFFER_SIZE};
 use crate::ggpo::GGPOSessionCallbacks;
 use crate::input_queue::InputQueue;
 use crate::network::udp_msg::ConnectStatus;
@@ -47,8 +47,8 @@ pub struct Event {
 #[derive(Debug)]
 pub struct SavedFrame<'a> {
     size: usize,
-    frame: Option<usize>,
-    checksum: Option<usize>,
+    frame: Frame,
+    checksum: Option<u32>,
     buffer: Option<&'a mut [u8]>,
 }
 
@@ -76,7 +76,7 @@ pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
     config: Option<&'callbacks mut Config<'callbacks, T>>,
 
     rolling_back: bool,
-    last_confirmed_frame: Option<usize>,
+    last_confirmed_frame: Frame,
     frame_count: usize,
     max_prediction_frames: usize,
 
@@ -109,16 +109,12 @@ impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
 pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
     fn new(connect_status: Vec<&'b ConnectStatus>) -> Sync<'a, 'b, T>;
     fn init(&mut self, config: &'a mut Config<'a, T>);
-    fn set_last_confirmed_frame(&mut self, frame: Option<usize>);
+    fn set_last_confirmed_frame(&mut self, frame: Frame);
     fn set_frame_delay(&mut self, queue: usize, delay: usize);
     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
     fn add_remote_input(&mut self, queue: usize, input: &GameInput);
     // void *....................
-    fn get_confirmed_inputs(
-        &mut self,
-        values: &mut Vec<InputBuffer>,
-        frame: Option<usize>,
-    ) -> usize;
+    fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize;
     fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
 
     fn check_simulation(&mut self);
@@ -130,9 +126,9 @@ pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
     fn in_rollback(&self) -> bool;
     fn get_event(&mut self) -> Option<Event>;
 
-    fn load_frame(&mut self, frame: Option<usize>);
+    fn load_frame(&mut self, frame: Frame);
     fn save_current_frame(&mut self);
-    fn find_saved_frame_index(&self, frame: Option<usize>) -> usize;
+    fn find_saved_frame_index(&self, frame: Frame) -> usize;
     fn get_last_saved_frame(&self) -> &SavedFrame<'a>;
 
     fn create_queues(&mut self) -> bool;
@@ -178,7 +174,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         true
     }
 
-    fn set_last_confirmed_frame(&mut self, frame: Option<usize>) {
+    fn set_last_confirmed_frame(&mut self, frame: Frame) {
         self.last_confirmed_frame = frame;
         match (
             self.last_confirmed_frame,
@@ -318,7 +314,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         &self.saved_state.frames[i as usize]
     }
 
-    fn find_saved_frame_index(&self, frame: Option<usize>) -> usize {
+    fn find_saved_frame_index(&self, frame: Frame) -> usize {
         let count = self.saved_state.frames.len();
         let mut j: usize = 0;
 
@@ -379,11 +375,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         self.save_current_frame();
     }
 
-    fn get_confirmed_inputs(
-        &mut self,
-        values: &mut Vec<InputBuffer>,
-        frame: Option<usize>,
-    ) -> usize {
+    fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize {
         let mut disconnect_flags = 0;
 
         match (
@@ -476,7 +468,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     }
 
     fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool {
-        let mut first_incorrect: Option<usize> = None;
+        let mut first_incorrect: Frame = None;
 
         match (&self.input_queues, self.config.as_ref()) {
             (Some(input_queues), Some(config)) => {
@@ -549,7 +541,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         info!("---\n");
     }
 
-    fn load_frame(&mut self, frame: Option<usize>) {
+    fn load_frame(&mut self, frame: Frame) {
         // find the frame in question
         if frame == Some(self.frame_count) {
             info!("Skipping NOP.\n");

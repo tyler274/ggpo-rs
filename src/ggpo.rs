@@ -1,3 +1,4 @@
+use crate::game_input::Frame;
 use crate::player::{Player, PlayerHandle};
 pub enum ErrorCode {
     Ok,
@@ -100,8 +101,8 @@ pub trait GGPOSessionCallbacks: Clone + Sized {
         &mut self,
         buffer: Option<&mut [u8]>,
         length: &usize,
-        checksum: Option<usize>,
-        frame: Option<usize>,
+        checksum: Option<u32>,
+        frame: Frame,
     ) -> bool;
 
     /*
@@ -154,8 +155,8 @@ pub struct CallbacksStub {
     pub save_game_state: extern "C" fn(
         buffer: Option<&[u8]>,
         length: usize,
-        checksum: Option<usize>,
-        frame: Option<usize>,
+        checksum: Option<u32>,
+        frame: Frame,
     ) -> bool,
 
     /*
