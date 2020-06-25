@@ -11,7 +11,7 @@ pub struct TimeSync {
     local: [i32; FRAME_WINDOW_SIZE],
     remote: [i32; FRAME_WINDOW_SIZE],
     last_inputs: [GameInput; MIN_UNIQUE_FRAMES],
-    next_prediction: usize,
+    _next_prediction: usize,
 }
 
 impl TimeSync {
@@ -19,18 +19,18 @@ impl TimeSync {
         TimeSync {
             local: [0; FRAME_WINDOW_SIZE],
             remote: [0; FRAME_WINDOW_SIZE],
-            next_prediction: FRAME_WINDOW_SIZE * 3,
+            _next_prediction: FRAME_WINDOW_SIZE * 3,
             last_inputs: [GameInput::new(); MIN_UNIQUE_FRAMES],
         }
     }
     pub fn advance_frame(&mut self, input: &GameInput, advantage: i32, r_advantage: i32) {
-        let sleep_time: i32 = 0;
+        let _sleep_time: i32 = 0;
         // Remember the last frame and frame advantage
         match input.frame {
             Some(frame) => {
-                self.last_inputs[frame % MIN_UNIQUE_FRAMES] = input.clone();
-                self.local[frame % FRAME_WINDOW_SIZE] = advantage;
-                self.remote[frame % FRAME_WINDOW_SIZE] = r_advantage;
+                self.last_inputs[frame as usize % MIN_UNIQUE_FRAMES] = input.clone();
+                self.local[frame as usize % FRAME_WINDOW_SIZE] = advantage;
+                self.remote[frame as usize % FRAME_WINDOW_SIZE] = r_advantage;
             }
             None => error!("game input frame is null"),
         }
@@ -42,7 +42,7 @@ impl TimeSync {
         count: &mut usize,
     ) -> i32 {
         // Average our local and remote frame advantages
-        let (i, mut sum) = (0, 0);
+        let mut sum = 0;
         let (advantage, r_advantage): (f32, f32);
         for i in 0..FRAME_WINDOW_SIZE {
             sum += self.local[i];

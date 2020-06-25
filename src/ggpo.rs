@@ -1,19 +1,37 @@
 use crate::game_input::Frame;
 use crate::player::{Player, PlayerHandle};
-pub enum ErrorCode {
+use bytes::{Bytes, BytesMut};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum GGPOError {
+    #[error("GGPO OK.")]
     Ok,
+    #[error("GGPO Success.")]
     Success,
+    #[error("GGPO general Failure.")]
     GeneralFailure,
+    #[error("GGPO invalid session.")]
     InvalidSession,
+    #[error("GGPO invalid player handle.")]
     InvalidPlayerHandle,
+    #[error("GGPO player out of range.")]
     PlayerOutOfRange,
+    #[error("GGPO prediction threshold.")]
     PredictionThreshold,
+    #[error("GGPO unsupported.")]
     Unsupported,
+    #[error("GGPO not synchronized.")]
     NotSynchronized,
+    #[error("GGPO in rollback.")]
     InRollback,
+    #[error("GGPO input dropped.")]
     InputDropped,
+    #[error("GGPO player disconnected.")]
     PlayerDisconnected,
+    #[error("GGPO too many spectators.")]
     TooManySpectators,
+    #[error("GGPO invalid request.")]
     InvalidRequest,
 }
 
@@ -45,45 +63,45 @@ pub enum Event {
 }
 
 pub trait Session {
-    fn do_poll(timeout: usize) -> ErrorCode {
-        ErrorCode::Ok
+    fn do_poll(_timeout: usize) -> GGPOError {
+        GGPOError::Ok
     }
 
-    fn add_player(player: Player, handle: PlayerHandle) -> ErrorCode;
+    fn add_player(player: Player, handle: PlayerHandle) -> GGPOError;
 
-    fn add_local_input(player: PlayerHandle, values: String, size: usize) -> ErrorCode;
+    fn add_local_input(player: PlayerHandle, values: String, size: usize) -> GGPOError;
 
-    fn sync_input(values: String, size: usize, disconnect_flags: i32) -> ErrorCode;
+    fn sync_input(values: String, size: usize, disconnect_flags: i32) -> GGPOError;
 
-    fn increment_frame() -> ErrorCode {
-        ErrorCode::Ok
+    fn increment_frame() -> GGPOError {
+        GGPOError::Ok
     }
 
-    fn chat(text: String) -> ErrorCode {
-        ErrorCode::Ok
+    fn chat(_text: String) -> GGPOError {
+        GGPOError::Ok
     }
 
-    fn disconnect_player(handle: PlayerHandle) -> ErrorCode {
-        ErrorCode::Ok
+    fn disconnect_player(_handle: PlayerHandle) -> GGPOError {
+        GGPOError::Ok
     }
 
-    fn get_network_stats(stats: NetworkStats, handle: PlayerHandle) -> ErrorCode {
-        ErrorCode::Ok
+    fn get_network_stats(_stats: NetworkStats, _handle: PlayerHandle) -> GGPOError {
+        GGPOError::Ok
     }
 
     //TODO: stub this with the log crate
     //fn logv()
 
-    fn set_frame_delay(player: PlayerHandle, delay: i32) -> ErrorCode {
-        ErrorCode::Unsupported
+    fn set_frame_delay(_player: PlayerHandle, _delay: i32) -> GGPOError {
+        GGPOError::Unsupported
     }
 
-    fn set_disconnect_timeout(timeout: usize) -> ErrorCode {
-        ErrorCode::Unsupported
+    fn set_disconnect_timeout(_timeout: usize) -> GGPOError {
+        GGPOError::Unsupported
     }
 
-    fn set_disconnect_notify_start(timeout: usize) -> ErrorCode {
-        ErrorCode::Unsupported
+    fn set_disconnect_notify_start(_timeout: usize) -> GGPOError {
+        GGPOError::Unsupported
     }
 }
 
@@ -99,7 +117,7 @@ pub trait GGPOSessionCallbacks: Clone + Sized {
      */
     fn save_game_state(
         &mut self,
-        buffer: Option<&mut [u8]>,
+        buffer: &Bytes,
         length: &usize,
         checksum: Option<u32>,
         frame: Frame,
@@ -112,20 +130,20 @@ pub trait GGPOSessionCallbacks: Clone + Sized {
      * should make the current game state match the state contained in the
      * buffer.
      */
-    fn load_game_state(&mut self, buffer: &[u8], length: usize) -> bool;
+    fn load_game_state(&mut self, buffer: &Bytes, length: usize) -> bool;
 
     /*
      * log_game_state - Used in diagnostic testing.  The client should use
      * the ggpo_log function to write the contents of the specified save
      * state in a human readible form.
      */
-    fn log_game_state(&mut self, filename: String, buffer: &[u8], length: usize) -> bool;
+    fn log_game_state(&mut self, filename: String, buffer: Bytes, length: usize) -> bool;
 
     /*
      * free_buffer - Frees a game state allocated in save_game_state.  You
      * should deallocate the memory contained in the buffer.
      */
-    fn free_buffer(&mut self, buffer: &[u8]);
+    fn free_buffer(&mut self, buffer: &Bytes);
 
     /*
      * advance_frame - Called during a rollback.  You should advance your game
@@ -153,7 +171,7 @@ pub struct CallbacksStub {
      * a checksum of the data and store it in the *checksum argument.
      */
     pub save_game_state: extern "C" fn(
-        buffer: Option<&[u8]>,
+        buffer: Option<BytesMut>,
         length: usize,
         checksum: Option<u32>,
         frame: Frame,
@@ -166,20 +184,20 @@ pub struct CallbacksStub {
      * should make the current game state match the state contained in the
      * buffer.
      */
-    pub load_game_state: extern "C" fn(buffer: &[u8], length: usize) -> bool,
+    pub load_game_state: extern "C" fn(buffer: BytesMut, length: usize) -> bool,
 
     /*
      * log_game_state - Used in diagnostic testing.  The client should use
      * the ggpo_log function to write the contents of the specified save
      * state in a human readible form.
      */
-    pub log_game_state: extern "C" fn(filename: String, buffer: &[u8], length: usize) -> bool,
+    pub log_game_state: extern "C" fn(filename: String, buffer: BytesMut, length: usize) -> bool,
 
     /*
      * free_buffer - Frees a game state allocated in save_game_state.  You
      * should deallocate the memory contained in the buffer.
      */
-    pub free_buffer: extern "C" fn(buffer: &[u8]),
+    pub free_buffer: extern "C" fn(buffer: BytesMut),
 
     /*
      * advance_frame - Called during a rollback.  You should advance your game
@@ -200,22 +218,22 @@ pub struct CallbacksStub {
 }
 
 struct Network {
-    send_queue_len: usize,
-    recv_queue_len: usize,
-    ping: usize,
-    kbps_sent: usize,
+    _send_queue_len: usize,
+    _recv_queue_len: usize,
+    _ping: usize,
+    _kbps_sent: usize,
 }
 
 struct Timesync {
-    local_frames_behind: i32,
-    remote_frames_behind: i32,
+    _local_frames_behind: i32,
+    _remote_frames_behind: i32,
 }
 
 pub struct NetworkStats {
-    network: Network,
-    timesync: Timesync,
+    _network: Network,
+    _timesync: Timesync,
 }
 
-struct LocalEndpoint {
+struct _LocalEndpoint {
     player_num: usize,
 }

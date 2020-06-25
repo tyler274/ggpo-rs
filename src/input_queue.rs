@@ -1,4 +1,4 @@
-use crate::game_input::{Frame, GameInput, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS};
+use crate::game_input::{Frame, FrameNum, GameInput, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS};
 use log::info;
 use std::cmp;
 
@@ -15,9 +15,9 @@ macro_rules! previous_frame {
     };
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct InputQueue {
-    id: usize,
+    _id: usize,
     head: usize,
     tail: usize,
     length: usize,
@@ -37,7 +37,7 @@ pub struct InputQueue {
 impl Default for InputQueue {
     fn default() -> Self {
         InputQueue {
-            id: 0,
+            _id: 0,
             head: 0,
             tail: 0,
             length: 0,
@@ -66,7 +66,7 @@ impl InputQueue {
     }
     pub fn init(id: usize, input_size: usize) -> Self {
         InputQueue {
-            id,
+            _id: id,
             head: 0,
             tail: 0,
             length: 0,
@@ -91,7 +91,7 @@ impl InputQueue {
         }
 
         if let Some(requested_frame_value) = requested_frame {
-            let offset = requested_frame_value % INPUT_QUEUE_LENGTH;
+            let offset = requested_frame_value as usize % INPUT_QUEUE_LENGTH;
 
             if self.inputs[offset].frame != requested_frame {
                 return false;
@@ -120,7 +120,7 @@ impl InputQueue {
         self.first_incorrect_frame
     }
 
-    pub fn discard_confirmed_frames(&mut self, in_frame: usize) {
+    pub fn discard_confirmed_frames(&mut self, in_frame: FrameNum) {
         let mut frame = in_frame;
 
         if let Some(last_frame_requested) = self.last_frame_requested {
@@ -137,7 +137,7 @@ impl InputQueue {
                 self.tail = self.head;
             } else {
                 if let Some(tail_frame) = self.inputs[self.tail].frame {
-                    let offset = frame - tail_frame + 1;
+                    let offset: usize = (frame - tail_frame + 1) as usize;
 
                     info!("difference of {} frames.\n", offset);
 
@@ -153,7 +153,7 @@ impl InputQueue {
         }
     }
 
-    pub fn reset_prediction(&mut self, frame: usize) {
+    pub fn reset_prediction(&mut self, frame: FrameNum) {
         if let Some(first_incorrect_frame) = self.first_incorrect_frame {
             assert!(frame <= first_incorrect_frame);
         }
@@ -165,7 +165,7 @@ impl InputQueue {
         self.last_frame_requested = None;
     }
 
-    pub fn get_input(&mut self, requested_frame: usize, input: &mut GameInput) -> bool {
+    pub fn get_input(&mut self, requested_frame: FrameNum, input: &mut GameInput) -> bool {
         info!("requesting input frame {}.\n", requested_frame);
 
         /*
@@ -185,7 +185,7 @@ impl InputQueue {
             assert!(requested_frame >= input_tail_frame);
 
             if self.prediction.frame == None {
-                let mut offset = requested_frame - input_tail_frame;
+                let mut offset: usize = (requested_frame - input_tail_frame) as usize;
 
                 if offset < self.length {
                     offset = (offset + self.tail) % INPUT_QUEUE_LENGTH;
@@ -249,7 +249,7 @@ impl InputQueue {
         false
     }
 
-    pub fn add_delayed_input_to_queue(&mut self, input: &GameInput, frame_number: usize) {
+    pub fn add_delayed_input_to_queue(&mut self, input: &GameInput, frame_number: FrameNum) {
         info!(
             "adding delayed input frame number {} to queue.\n",
             frame_number

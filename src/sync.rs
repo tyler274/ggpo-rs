@@ -1,7 +1,8 @@
-use crate::game_input::{Frame, GameInput, InputBuffer, INPUT_BUFFER_SIZE};
+use crate::game_input::{Frame, FrameNum, GameInput, InputBuffer, INPUT_BUFFER_SIZE};
 use crate::ggpo::GGPOSessionCallbacks;
 use crate::input_queue::InputQueue;
 use crate::network::udp_msg::ConnectStatus;
+use bytes::Bytes;
 use log::{error, info, warn};
 
 use arraydeque::ArrayDeque;
@@ -11,7 +12,7 @@ const MAX_PREDICTION_FRAMES: usize = 8;
 #[derive(Debug)]
 pub struct Config<'a, T: GGPOSessionCallbacks> {
     callbacks: Option<&'a mut T>,
-    num_prediction_frames: usize,
+    num_prediction_frames: FrameNum,
     num_players: usize,
     input_size: usize,
 }
@@ -36,49 +37,49 @@ impl<'a, T: GGPOSessionCallbacks> Config<'a, T> {
 }
 
 enum Type {
-    ConfirmedInput,
+    _ConfirmedInput,
 }
 
 pub struct Event {
-    input_type: Type,
-    input: GameInput,
+    _input_type: Type,
+    _input: GameInput,
 }
 
 #[derive(Debug)]
-pub struct SavedFrame<'a> {
+pub struct SavedFrame {
     size: usize,
     frame: Frame,
     checksum: Option<u32>,
-    buffer: Option<&'a mut [u8]>,
+    buffer: Bytes,
 }
 
-impl<'a> SavedFrame<'a> {
+impl SavedFrame {
     const fn new() -> Self {
         SavedFrame {
             size: 0,
             frame: None,
             checksum: None,
-            buffer: None,
+            buffer: Bytes::new(),
         }
     }
 }
 
 const BLANK_FRAME: SavedFrame = SavedFrame::new();
 
-struct SavedState<'a> {
-    frames: [SavedFrame<'a>; MAX_PREDICTION_FRAMES + 2],
+struct SavedState {
+    frames: [SavedFrame; MAX_PREDICTION_FRAMES + 2],
     head: usize,
 }
 
 pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
     callbacks: Option<&'callbacks mut T>,
-    saved_state: SavedState<'callbacks>,
+    saved_state: SavedState,
     config: Option<&'callbacks mut Config<'callbacks, T>>,
 
     rolling_back: bool,
     last_confirmed_frame: Frame,
-    frame_count: usize,
-    max_prediction_frames: usize,
+    frame_count: FrameNum,
+    max_prediction_frames: FrameNum,
 
     input_queues: Option<Vec<InputQueue>>,
 
@@ -118,22 +119,22 @@ pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
     fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
 
     fn check_simulation(&mut self);
-    fn adjust_simulation(&mut self, seek_to: usize);
+    fn adjust_simulation(&mut self, seek_to: FrameNum);
     // void......again
     fn increment_frame(&mut self);
 
-    fn get_frame_count(&self) -> usize;
+    fn get_frame_count(&self) -> FrameNum;
     fn in_rollback(&self) -> bool;
     fn get_event(&mut self) -> Option<Event>;
 
     fn load_frame(&mut self, frame: Frame);
     fn save_current_frame(&mut self);
     fn find_saved_frame_index(&self, frame: Frame) -> usize;
-    fn get_last_saved_frame(&self) -> &SavedFrame<'a>;
+    fn get_last_saved_frame(&self) -> &SavedFrame;
 
     fn create_queues(&mut self) -> bool;
-    fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool;
-    fn reset_prediction(&mut self, frame_number: usize);
+    fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool;
+    fn reset_prediction(&mut self, frame_number: FrameNum);
 }
 
 impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
@@ -201,7 +202,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     }
 
     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool {
-        let frames_behind: usize;
+        let frames_behind: FrameNum;
         match self.last_confirmed_frame {
             Some(last_confirmed_frame) => frames_behind = self.frame_count - last_confirmed_frame,
             None => frames_behind = self.frame_count + 1,
@@ -254,16 +255,16 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
 
         // it was pointer arithmetic
         let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
-        match (&mut self.config, &mut state.buffer) {
+        match (&mut self.config, &state.buffer) {
             (
                 Some(Config {
                     callbacks: Some(callbacks),
                     ..
                 }),
-                Some(buffer),
+                buffer,
             ) => {
                 callbacks.free_buffer(buffer);
-                state.buffer = None;
+                // state.buffer = None;
             }
             (
                 Some(Config {
@@ -272,18 +273,12 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
                 _,
             ) => error!("Callbacks not initialized"),
             (None, _) => error!("Config not initialized"),
-            (_, None) => error!("Saved frame state buffer not initialized"),
         }
 
         state.frame = Some(self.frame_count);
         match self.callbacks.as_mut() {
             Some(callbacks) => {
-                callbacks.save_game_state(
-                    state.buffer.as_deref_mut(),
-                    &state.size,
-                    state.checksum,
-                    state.frame,
-                );
+                callbacks.save_game_state(&state.buffer, &state.size, state.checksum, state.frame);
             }
             None => error!("Callbacks not initialized"),
         }
@@ -306,7 +301,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         self.saved_state.head += 1;
     }
 
-    fn get_last_saved_frame(&self) -> &SavedFrame<'a> {
+    fn get_last_saved_frame(&self) -> &SavedFrame {
         let mut i: isize = self.saved_state.head as isize - 1;
         if i < 0 {
             i = self.saved_state.frames.len() as isize - 1;
@@ -325,7 +320,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
             j = i;
         }
         if j == count {
-            assert!(false);
+            unreachable!();
         }
 
         j
@@ -342,7 +337,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         }
     }
 
-    fn reset_prediction(&mut self, frame_number: usize) {
+    fn reset_prediction(&mut self, frame_number: FrameNum) {
         match (self.input_queues.as_mut(), self.config.as_ref()) {
             (Some(input_queues), Some(config)) => {
                 for i in 0..config.num_players {
@@ -362,7 +357,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         self.event_queue.pop_front()
     }
 
-    fn get_frame_count(&self) -> usize {
+    fn get_frame_count(&self) -> FrameNum {
         self.frame_count
     }
 
@@ -461,13 +456,13 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
     }
 
     fn check_simulation(&mut self) {
-        let mut seek_to: usize = 0;
+        let mut seek_to: FrameNum = 0;
         if !self.check_simulation_consistency(&mut seek_to) {
             self.adjust_simulation(seek_to);
         }
     }
 
-    fn check_simulation_consistency(&mut self, seek_to: &mut usize) -> bool {
+    fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool {
         let mut first_incorrect: Frame = None;
 
         match (&self.input_queues, self.config.as_ref()) {
@@ -508,7 +503,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         false
     }
 
-    fn adjust_simulation(&mut self, seek_to: usize) {
+    fn adjust_simulation(&mut self, seek_to: FrameNum) {
         let framecount = self.frame_count;
         let count = self.frame_count - seek_to;
 
@@ -567,14 +562,15 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
             ),
         }
 
-        assert!(state.buffer != None && state.size > 0);
+        // TODO: Obviously these serve the same purpose, but still testing the use of the `bytes` crate
+        assert!(state.buffer.len() > 0 && state.size > 0);
 
-        match (&mut self.callbacks, &mut state.buffer) {
-            (Some(callbacks), Some(buffer)) => {
-                callbacks.load_game_state(buffer, state.size);
+        match (&mut self.callbacks, &state.buffer) {
+            (_, s) if s.len() == 0 => error!("State buffer not initialized"),
+            (Some(callbacks), buffer) => {
+                callbacks.load_game_state(&buffer, state.size);
             }
             (None, _) => error!("Callbacks not initialized!"),
-            (_, None) => error!("State buffer not initialized"),
         };
 
         // Reset framecount and the head of the state ring-buffer to point in

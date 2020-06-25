@@ -7,8 +7,8 @@ pub const GAMEINPUT_MAX_BYTES: usize = 9;
 pub const GAMEINPUT_MAX_PLAYERS: usize = 2;
 pub const INPUT_BUFFER_SIZE: usize = GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS;
 pub type InputBuffer = [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
-
-pub type Frame = Option<usize>;
+pub type FrameNum = u32;
+pub type Frame = Option<FrameNum>;
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct GameInput {
     pub frame: Frame,
@@ -39,19 +39,19 @@ impl GameInput {
             },
         }
     }
-    const fn value(&self, i: usize) -> bool {
+    const fn _value(&self, i: usize) -> bool {
         (self.bits[i / 8] & (1 << (i % 8))) != 0
     }
-    fn set(&mut self, i: usize) {
+    fn _set(&mut self, i: usize) {
         self.bits[i / 8] |= 1 << (i % 8);
     }
-    fn clear(&mut self, i: usize) {
+    fn _clear(&mut self, i: usize) {
         self.bits[i / 8] &= !(1 << (i % 8));
     }
     pub fn erase(&mut self) {
         self.bits = [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
     }
-    fn describe(&self, show_frame: bool) -> String {
+    fn _describe(&self, show_frame: bool) -> String {
         let mut buf: String = String::from("");
         if let Some(frame) = self.frame {
             if show_frame {
@@ -62,7 +62,7 @@ impl GameInput {
         }
 
         for i in 0..(self.size as usize) * 8 {
-            if self.value(i) {
+            if self._value(i) {
                 buf.push_str(&format!("{:2}", i));
             }
         }

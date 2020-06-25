@@ -4,6 +4,8 @@
 // #![feature(const_generics)]
 #![feature(slice_fill)]
 // #![feature(const_in_array_repeat_expressions)]
+#![feature(move_ref_pattern)]
+#![warn(clippy::all)]
 
 pub mod backends {
     pub mod p2p;

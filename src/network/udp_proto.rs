@@ -1,68 +1,67 @@
 use crate::network::udp_msg::{ConnectStatus, UdpMsg, UDP_MSG_MAX_PLAYERS};
 use arraydeque::ArrayDeque;
-use std::collections::VecDeque;
 use std::net::SocketAddr;
 
 use crate::network::udp::Udp;
 
 enum State {
-    Syncing,
-    Synchronized,
-    Running,
-    Disconnected,
+    _Syncing,
+    _Synchronized,
+    _Running,
+    _Disconnected,
 }
 
 struct QueueEntry {
-    queue_time: i32,
-    dest_addr: SocketAddr,
-    msg: *mut UdpMsg,
+    _queue_time: i32,
+    _dest_addr: SocketAddr,
+    _msg: Box<UdpMsg>,
 }
 
 impl QueueEntry {
-    pub const fn new(time: i32, dst: &SocketAddr, m: *mut UdpMsg) -> QueueEntry {
+    pub const fn _new(time: i32, dst: &SocketAddr, m: Box<UdpMsg>) -> QueueEntry {
         QueueEntry {
-            queue_time: time,
-            dest_addr: *dst,
-            msg: m,
+            _queue_time: time,
+            _dest_addr: *dst,
+            _msg: m,
         }
     }
 }
 
 struct OoPacket<'a> {
-    send_time: i32,
-    dest_addr: SocketAddr,
-    msg: &'a UdpMsg,
+    _send_time: i32,
+    _dest_addr: SocketAddr,
+    _msg: &'a UdpMsg,
 }
 
 pub struct UdpProtocol<'a, 'b, 'c> {
     /*
      * Network transmission information
      */
-    udp: &'a mut Udp<'a, 'a>,
-    peer_addr: SocketAddr,
-    magic_number: u16,
-    queue: i32,
-    remote_magic_number: u16,
-    connected: bool,
-    send_latency: i32,
-    oop_percent: i32,
-    oo_packet: OoPacket<'b>,
-    send_queue: ArrayDeque<[QueueEntry; 64]>,
+    _udp: &'a mut Udp<'a, 'a>,
+    _peer_addr: SocketAddr,
+    _magic_number: u16,
+    _queue: i32,
+    _remote_magic_number: u16,
+    _connected: bool,
+    _send_latency: i32,
+    _oop_percent: i32,
+    _oo_packet: OoPacket<'b>,
+    _send_queue: ArrayDeque<[QueueEntry; 64]>,
     /*
      * Stats
      */
-    round_trip_time: i32,
-    packets_sent: i32,
-    bytes_sent: i32,
-    kbps_sent: i32,
-    stats_start_time: i32,
+    _round_trip_time: i32,
+    _packets_sent: i32,
+    _bytes_sent: i32,
+    _kbps_sent: i32,
+    _stats_start_time: i32,
     /*
      * The state machine
      */
-    local_connect_status: &'c ConnectStatus,
-    peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
+    _local_connect_status: &'c ConnectStatus,
+    _peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
 
-    current_state: State,
+    _current_state: State,
 }
 
 // impl UdpProtocol {
