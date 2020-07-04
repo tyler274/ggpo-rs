@@ -1,18 +1,21 @@
 use crate::constants::MAX_PLAYERS;
 use crc32fast::Hasher;
+use enumflags2::BitFlags;
 use ggpo::{ggpo::Event, player::Player};
 use std::net::{IpAddr, SocketAddr};
 
 pub const FRAME_DELAY: usize = 2;
 // TODO: Synctest during testing
 
-enum Inputs {
-    Thrust,
-    Break,
-    Rotate_Left,
-    Rotate_Right,
-    Fire,
-    Bomb,
+#[derive(BitFlags, Debug, Copy, Clone, PartialEq)]
+#[repr(u8)]
+pub enum Input {
+    Thrust = 0b00000001,
+    Break = 0b00000010,
+    RotateLeft = 0b00000100,
+    RotateRight = 0b00001000,
+    Fire = 0b00010000,
+    Bomb = 0b00100000,
 }
 
 pub fn init(local_port: u16, num_players: i32, players: &[Player], num_spectators: i32) {
