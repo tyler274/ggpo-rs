@@ -1,131 +1,197 @@
+use crate::game_input::Frame;
+use crate::network::udp_msg;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use log::error;
+use serde::{Deserialize, Serialize};
+use serde_big_array::big_array;
 use std::mem::size_of;
+
+big_array! { BigArray; }
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub enum MsgType {
-    Invalid,
-    SyncRequest,
-    SyncReply,
-    Input,
-    QualityReport,
-    QualityReply,
-    KeepAlive,
-    InputAck,
+    Invalid = 0,
+    SyncRequest = 1,
+    SyncReply = 2,
+    Input = 3,
+    QualityReport = 4,
+    QualityReply = 5,
+    KeepAlive = 6,
+    InputAck = 7,
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ConnectStatus {
     pub disconnected: i32,
-    pub last_frame: i32,
+    pub last_frame: Frame,
+}
+
+impl ConnectStatus {
+    pub const fn new() -> Self {
+        Self {
+            disconnected: 1,
+            last_frame: None,
+        }
+    }
 }
 
 impl Default for ConnectStatus {
     fn default() -> Self {
-        ConnectStatus {
-            disconnected: 1,
-            last_frame: 31,
+        Self::new()
+    }
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct Header {
+    pub _magic: u16,
+    pub _sequence_number: u16,
+    pub packet_type: MsgType,
+}
+
+impl Header {
+    pub const fn new(t: MsgType) -> Self {
+        Header {
+            packet_type: t,
+            _magic: 0,
+            _sequence_number: 0,
         }
     }
 }
 
-struct Header {
-    _magic: u16,
-    _sequence_number: u16,
-    packet_type: MsgType,
-}
 impl Default for Header {
     fn default() -> Self {
-        Self {
-            _magic: 0,
-            _sequence_number: 0,
-            packet_type: MsgType::Invalid,
-        }
-    }
-}
-impl Header {
-    fn new(t: MsgType) -> Self {
-        Header {
-            packet_type: t,
-            ..Default::default()
-        }
+        Header::new(MsgType::Invalid)
     }
 }
 
 pub const UDP_MSG_MAX_PLAYERS: usize = 4;
 pub const MAX_COMPRESSED_BITS: usize = 4096;
-
-struct SyncRequest {
-    _random_request: u32,
-    _remote_magic: u16,
-    _remote_endpoint: u8,
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct SyncRequest {
+    random_request: u32,
+    remote_magic: u16,
+    remote_endpoint: u8,
+}
+impl Default for SyncRequest {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-struct SyncReply {
-    _random_reply: u32,
+impl SyncRequest {
+    pub const fn new() -> Self {
+        Self {
+            random_request: 0,
+            remote_endpoint: 0,
+            remote_magic: 0,
+        }
+    }
 }
 
-struct QualityReport {
-    _frame_advantage: i8,
-    _ping: u32,
+#[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
+pub struct SyncReply {
+    random_reply: u32,
 }
 
-struct QualityReply {
-    _pong: u32,
+impl SyncReply {
+    pub const fn new() -> Self {
+        Self { random_reply: 0 }
+    }
+}
+#[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
+pub struct QualityReport {
+    frame_advantage: i8,
+    ping: u32,
 }
 
-struct Input {
-    _peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
+impl QualityReport {
+    pub const fn new() -> Self {
+        Self {
+            frame_advantage: 0,
+            ping: 0,
+        }
+    }
+}
 
-    _start_frame: u32,
+#[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
+pub struct QualityReply {
+    pong: u32,
+}
 
-    _disconnect_requested: i32, // default value should be 1
-    _ack_frame: i32,            // default value should be 31
+impl QualityReply {
+    pub const fn new() -> Self {
+        Self { pong: 0 }
+    }
+}
 
-    _num_bits: u16,
+#[derive(Serialize, Deserialize, Copy, Clone)]
+pub struct Input {
+    pub peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
+
+    pub start_frame: u32,
+
+    pub disconnect_requested: i32, // default value should be 1
+    pub ack_frame: i32,            // default value should be 31
+
+    pub num_bits: u16,
 
     // input_size: u8, // TODO: shouldn't be in every single packet
-    _bits: [u8; MAX_COMPRESSED_BITS],
+    #[serde(with = "BigArray")]
+    pub bits: [u8; MAX_COMPRESSED_BITS],
 }
 
-struct InputAck {
-    _ack_frame: i32, // default value should be 31
+impl Input {
+    pub const fn new() -> Self {
+        Self {
+            bits: [b'0'; MAX_COMPRESSED_BITS],
+            peer_connect_status: [ConnectStatus::new(); UDP_MSG_MAX_PLAYERS],
+            start_frame: 0,
+            disconnect_requested: 1,
+            ack_frame: 31,
+
+            num_bits: 0,
+        }
+    }
 }
 
+impl Default for Input {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct InputAck {
+    ack_frame: i32, // default value should be 31
+}
+
+impl InputAck {
+    pub const fn new() -> Self {
+        Self { ack_frame: 31 }
+    }
+}
+
+impl Default for InputAck {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub enum MsgEnum {
-    SyncRequest {
-        random_request: u32,
-        remote_magic: u16,
-        remote_endpoint: u8,
-    },
-    SyncReply {
-        random_reply: u32,
-    },
-    QualityReport {
-        frame_advantage: i8,
-        ping: u32,
-    },
-    QualityReply {
-        pong: u32,
-    },
-    Input {
-        peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
-
-        start_frame: u32,
-
-        disconnect_requested: i32, // default value should be 1
-        ack_frame: i32,            // default value should be 31
-
-        num_bits: u16,
-
-        // input_size: u8, // TODO: shouldn't be in every single packet
-        bits: [u8; MAX_COMPRESSED_BITS],
-    },
-    InputAck {
-        ack_frame: i32, // default value should be 31
-    },
+    SyncRequest(SyncRequest),
+    SyncReply(SyncReply),
+    QualityReport(QualityReport),
+    QualityReply(QualityReply),
+    Input(Input),
+    InputAck(InputAck),
     None,
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct UdpMsg {
-    header: Header,
-    message: MsgEnum,
+    pub header: Header,
+    pub message: MsgEnum,
 }
 
 impl Default for UdpMsg {
@@ -149,7 +215,7 @@ impl UdpMsg {
             MsgType::InputAck => size_of::<InputAck>(),
             MsgType::KeepAlive => 0,
             MsgType::Input => match self.message {
-                MsgEnum::Input { num_bits, .. } => {
+                MsgEnum::Input(Input { num_bits, .. }) => {
                     // The original computed this using the addresses within the union itself.
                     size = size_of::<Input>() - size_of::<[u8; MAX_COMPRESSED_BITS]>();
                     size += (num_bits as usize + 7) / 8;
@@ -169,11 +235,46 @@ impl UdpMsg {
     pub fn packet_size(self) -> usize {
         size_of::<Header>() + self.payload_size()
     }
-    pub fn new(t: MsgType) -> Self {
+    pub const fn new(t: MsgType) -> Self {
         match t {
-            _ => Self {
+            MsgType::Input => Self {
                 header: Header::new(t),
-                ..Default::default()
+                message: MsgEnum::Input(Input {
+                    bits: [b'0'; MAX_COMPRESSED_BITS],
+                    num_bits: 0,
+                    peer_connect_status: [ConnectStatus::new(); UDP_MSG_MAX_PLAYERS],
+                    start_frame: 0,
+                    disconnect_requested: 1,
+                    ack_frame: 31,
+                }),
+            },
+            MsgType::Invalid => Self {
+                header: Header::new(t),
+                message: MsgEnum::None,
+            },
+            MsgType::SyncRequest => Self {
+                header: Header::new(t),
+                message: MsgEnum::SyncRequest(SyncRequest::new()),
+            },
+            MsgType::SyncReply => Self {
+                header: Header::new(t),
+                message: MsgEnum::SyncReply(SyncReply::new()),
+            },
+            MsgType::QualityReport => Self {
+                header: Header::new(t),
+                message: MsgEnum::QualityReport(QualityReport::new()),
+            },
+            MsgType::QualityReply => Self {
+                header: Header::new(t),
+                message: MsgEnum::QualityReply(QualityReply::new()),
+            },
+            MsgType::KeepAlive => Self {
+                header: Header::new(t),
+                message: MsgEnum::None,
+            },
+            MsgType::InputAck => Self {
+                header: Header::new(t),
+                message: MsgEnum::InputAck(InputAck::new()),
             },
         }
     }

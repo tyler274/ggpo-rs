@@ -1,4 +1,5 @@
 use crate::constants::MAX_PLAYERS;
+use crate::game_state::MAX_SHIPS;
 use crc32fast::Hasher;
 use enumflags2::BitFlags;
 use ggpo::{ggpo::Event, player::Player};
@@ -10,12 +11,12 @@ pub const FRAME_DELAY: usize = 2;
 #[derive(BitFlags, Debug, Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Input {
-    Thrust = 0b00000001,
-    Break = 0b00000010,
-    RotateLeft = 0b00000100,
-    RotateRight = 0b00001000,
-    Fire = 0b00010000,
-    Bomb = 0b00100000,
+    Thrust = 0b0000_0001,
+    Break = 0b0000_0010,
+    RotateLeft = 0b0000_0100,
+    RotateRight = 0b0000_1000,
+    Fire = 0b0001_0000,
+    Bomb = 0b0010_0000,
 }
 
 pub fn init(local_port: u16, num_players: i32, players: &[Player], num_spectators: i32) {
@@ -63,4 +64,19 @@ fn on_event_callback(info: &Event) -> bool {
     //     Event::ConnectedToPeer =>
     // }
     unimplemented!()
+}
+
+/*
+ * Notification from GGPO we should step foward exactly 1 frame
+ * during a rollback.
+ */
+fn advance_frame_callback(flags: i32) -> bool {
+    let inputs: [BitFlags<Input>; MAX_SHIPS] = [BitFlags::empty(); MAX_SHIPS];
+    let disconnect_flags: i32 = 0;
+
+    // Make sure we fetch new inputs from GGPO and use those to update
+    // the game state instead of reading from the keyboard.
+
+    // FIXME
+    true
 }

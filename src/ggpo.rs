@@ -1,6 +1,7 @@
 use crate::game_input::Frame;
 use crate::player::{Player, PlayerHandle};
 use bytes::{Bytes, BytesMut};
+use log::info;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -63,45 +64,57 @@ pub enum Event {
 }
 
 pub trait Session {
-    fn do_poll(_timeout: usize) -> GGPOError {
-        GGPOError::Ok
+    fn do_poll(_timeout: usize) -> Result<(), GGPOError> {
+        Ok(())
     }
 
-    fn add_player(player: Player, handle: PlayerHandle) -> GGPOError;
-
-    fn add_local_input(player: PlayerHandle, values: String, size: usize) -> GGPOError;
-
-    fn sync_input(values: String, size: usize, disconnect_flags: i32) -> GGPOError;
-
-    fn increment_frame() -> GGPOError {
-        GGPOError::Ok
+    fn add_player(player: Player, handle: PlayerHandle) -> Result<(), GGPOError> {
+        Ok(())
     }
 
-    fn chat(_text: String) -> GGPOError {
-        GGPOError::Ok
+    fn add_local_input(player: PlayerHandle, values: String, size: usize) -> Result<(), GGPOError> {
+        Ok(())
     }
 
-    fn disconnect_player(_handle: PlayerHandle) -> GGPOError {
-        GGPOError::Ok
+    fn synchronize_input(
+        values: String,
+        size: usize,
+        disconnect_flags: i32,
+    ) -> Result<(), GGPOError> {
+        Ok(())
     }
 
-    fn get_network_stats(_stats: NetworkStats, _handle: PlayerHandle) -> GGPOError {
-        GGPOError::Ok
+    fn increment_frame() -> Result<(), GGPOError> {
+        Ok(())
+    }
+
+    fn chat(_text: String) -> Result<(), GGPOError> {
+        Ok(())
+    }
+
+    fn disconnect_player(_handle: PlayerHandle) -> Result<(), GGPOError> {
+        Ok(())
+    }
+
+    fn get_network_stats(_stats: NetworkStats, _handle: PlayerHandle) -> Result<(), GGPOError> {
+        Ok(())
     }
 
     //TODO: stub this with the log crate
-    //fn logv()
-
-    fn set_frame_delay(_player: PlayerHandle, _delay: i32) -> GGPOError {
-        GGPOError::Unsupported
+    fn logv(fmt: &str) -> Result<(), GGPOError> {
+        Ok(())
     }
 
-    fn set_disconnect_timeout(_timeout: usize) -> GGPOError {
-        GGPOError::Unsupported
+    fn set_frame_delay(_player: PlayerHandle, _delay: i32) -> Result<(), GGPOError> {
+        Err(GGPOError::Unsupported)
     }
 
-    fn set_disconnect_notify_start(_timeout: usize) -> GGPOError {
-        GGPOError::Unsupported
+    fn set_disconnect_timeout(_timeout: usize) -> Result<(), GGPOError> {
+        Err(GGPOError::Unsupported)
+    }
+
+    fn set_disconnect_notify_start(_timeout: usize) -> Result<(), GGPOError> {
+        Err(GGPOError::Unsupported)
     }
 }
 

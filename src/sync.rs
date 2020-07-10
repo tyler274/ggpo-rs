@@ -30,9 +30,7 @@ impl<'a, T: GGPOSessionCallbacks> Default for Config<'a, T> {
 
 impl<'a, T: GGPOSessionCallbacks> Config<'a, T> {
     pub fn new() -> Self {
-        Config {
-            ..Default::default()
-        }
+        Default::default()
     }
 }
 
@@ -71,10 +69,13 @@ struct SavedState {
     head: usize,
 }
 
-pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
-    callbacks: Option<&'callbacks mut T>,
+pub struct GGPOSync<'callbacks, 'network, Callbacks>
+where
+    Callbacks: GGPOSessionCallbacks,
+{
+    callbacks: Option<&'callbacks mut Callbacks>,
     saved_state: SavedState,
-    config: Option<&'callbacks mut Config<'callbacks, T>>,
+    config: Option<&'callbacks mut Config<'callbacks, Callbacks>>,
 
     rolling_back: bool,
     last_confirmed_frame: Frame,
@@ -87,9 +88,12 @@ pub struct Sync<'callbacks, 'network, T: GGPOSessionCallbacks> {
     local_connect_status: Option<Vec<&'network ConnectStatus>>,
 }
 
-impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
-    fn default() -> Sync<'a, 'b, T> {
-        Sync {
+impl<'a, 'b, Callbacks> Default for GGPOSync<'a, 'b, Callbacks>
+where
+    Callbacks: GGPOSessionCallbacks,
+{
+    fn default() -> GGPOSync<'a, 'b, Callbacks> {
+        GGPOSync {
             local_connect_status: None,
             frame_count: 0,
             last_confirmed_frame: None,
@@ -107,9 +111,12 @@ impl<'a, 'b, T: GGPOSessionCallbacks> Default for Sync<'a, 'b, T> {
     }
 }
 
-pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
-    fn new(connect_status: Vec<&'b ConnectStatus>) -> Sync<'a, 'b, T>;
-    fn init(&mut self, config: &'a mut Config<'a, T>);
+pub trait SyncTrait<'a, 'b, Callbacks>
+where
+    Callbacks: GGPOSessionCallbacks,
+{
+    fn new(connect_status: Vec<&'b ConnectStatus>) -> GGPOSync<'a, 'b, Callbacks>;
+    fn init(&mut self, config: &'a mut Config<'a, Callbacks>);
     fn set_last_confirmed_frame(&mut self, frame: Frame);
     fn set_frame_delay(&mut self, queue: usize, delay: usize);
     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
@@ -137,9 +144,9 @@ pub trait SyncTrait<'a, 'b, T: GGPOSessionCallbacks> {
     fn reset_prediction(&mut self, frame_number: FrameNum);
 }
 
-impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
+impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, T> {
     fn new(connect_status: Vec<&'b ConnectStatus>) -> Self {
-        Sync {
+        GGPOSync {
             local_connect_status: Some(Vec::from(connect_status)),
             ..Default::default()
         }
@@ -386,7 +393,8 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
                     let mut input: GameInput = GameInput::new();
                     if let Some(frame_value) = frame {
                         if local_connect_status[i].disconnected > 0
-                            && frame_value as i32 > local_connect_status[i].last_frame
+                            && frame_value as i32
+                                > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
                         {
                             disconnect_flags |= 1 << i;
                             input.erase();
@@ -429,7 +437,8 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
                 for i in 0..config.num_players {
                     let mut input: GameInput = GameInput::new();
                     if local_connect_status[i].disconnected > 0
-                        && self.frame_count as i32 > local_connect_status[i].last_frame
+                        && self.frame_count as i32
+                            > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
                     {
                         disconnect_flags |= 1 << i;
                         input.erase();
@@ -496,7 +505,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for Sync<'a, 'b, T> {
         if let Some(f_cor) = first_incorrect {
             *seek_to = f_cor;
         } else {
-            info!("prediction ok.  proceeding.\n");
+            info!("Prediction ok. Proceeding.\n");
             return true;
         }
 

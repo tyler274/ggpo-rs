@@ -1,4 +1,4 @@
-pub type PlayerHandle = usize;
+pub type PlayerHandle = u32;
 
 pub enum PlayerType {
     Local,

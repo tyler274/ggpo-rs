@@ -14,6 +14,12 @@ pub struct TimeSync {
     _next_prediction: usize,
 }
 
+impl Default for TimeSync {
+    fn default() -> Self {
+        TimeSync::new()
+    }
+}
+
 impl TimeSync {
     pub const fn new() -> Self {
         TimeSync {

@@ -10,7 +10,7 @@ pub type InputBuffer = [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
 pub type FrameNum = u32;
 pub type Frame = Option<FrameNum>;
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct GameInput {
     pub frame: Frame,
     pub size: usize,
