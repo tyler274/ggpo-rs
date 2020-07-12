@@ -1,4 +1,5 @@
 use log::info;
+use std::fmt::Display;
 
 // GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS * 8 must be less than
 // 2^BITVECTOR_NIBBLE_SIZE (see bitvector.h)

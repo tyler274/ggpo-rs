@@ -103,11 +103,10 @@ impl InputQueue {
         false
     }
     pub fn get_last_confirmed_frame(&self) -> Frame {
-        if let Some(frame) = self.last_added_frame {
-            info!("returning last confirmed frame: {}\n", frame);
-        } else {
-            info!("returning last confirmed frame: Null frame\n");
-        }
+        info!(
+            "returning last confirmed frame: {:?}\n",
+            self.last_added_frame
+        );
 
         self.last_added_frame
     }

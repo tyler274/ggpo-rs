@@ -1,12 +1,14 @@
 use crate::network::udp_msg::UdpMsg;
 
-use async_compression::futures::{bufread::ZstdDecoder, write::ZstdEncoder};
-use async_dup::Arc;
+// use async_compression::futures::{bufread::ZstdDecoder, write::ZstdEncoder};
+// use async_dup::Arc;
 use async_net::UdpSocket;
 use bytes::{Bytes, BytesMut};
 use log::{error, info};
-use smol::Async;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+// use std::ops::as_ref;
+use std::ops::Deref;
 use thiserror::Error;
 
 pub const ZSTD_LEVEL: i32 = 7;
@@ -117,7 +119,7 @@ where
     ) -> Result<(), UdpError> {
         let compressed = self
             .compressor
-            .compress(&bincode::serialize(&(*msg))?, ZSTD_LEVEL)?;
+            .compress(&bincode::serialize(msg.deref())?, ZSTD_LEVEL)?;
         let resp = self
             .socket
             .as_ref()

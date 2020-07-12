@@ -274,7 +274,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
                 buffer,
             ) => {
                 callbacks.free_buffer(buffer);
-                // state.buffer = None;
+                state.buffer.clear();
             }
             (
                 Some(Config {
@@ -394,7 +394,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
                 for i in 0..config.num_players {
                     let mut input: GameInput = GameInput::new();
                     if let Some(frame_value) = frame {
-                        if local_connect_status[i].disconnected > 0
+                        if local_connect_status[i].disconnected
                             && frame_value as i32
                                 > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
                         {
@@ -438,7 +438,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
 
                 for i in 0..config.num_players {
                     let mut input: GameInput = GameInput::new();
-                    if local_connect_status[i].disconnected > 0
+                    if local_connect_status[i].disconnected
                         && self.frame_count as i32
                             > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
                     {

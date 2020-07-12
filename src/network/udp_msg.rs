@@ -8,7 +8,7 @@ use std::mem::size_of;
 
 big_array! { BigArray; }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub enum MsgType {
     Invalid = 0,
     SyncRequest = 1,
@@ -22,14 +22,14 @@ pub enum MsgType {
 
 #[derive(Serialize, Deserialize, Copy, Clone)]
 pub struct ConnectStatus {
-    pub disconnected: i32,
+    pub disconnected: bool,
     pub last_frame: Frame,
 }
 
 impl ConnectStatus {
     pub const fn new() -> Self {
         Self {
-            disconnected: 1,
+            disconnected: true,
             last_frame: None,
         }
     }
@@ -44,7 +44,7 @@ impl Default for ConnectStatus {
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct Header {
     pub magic: u16,
-    pub _sequence_number: u16,
+    pub sequence_number: u16,
     pub packet_type: MsgType,
 }
 
@@ -53,7 +53,7 @@ impl Header {
         Header {
             packet_type: t,
             magic: 0,
-            _sequence_number: 0,
+            sequence_number: 0,
         }
     }
 }
@@ -68,9 +68,9 @@ pub const UDP_MSG_MAX_PLAYERS: usize = 4;
 pub const MAX_COMPRESSED_BITS: usize = 4096;
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct SyncRequest {
-    random_request: u32,
-    remote_magic: u16,
-    remote_endpoint: u8,
+    pub random_request: u32,
+    pub remote_magic: u16,
+    pub remote_endpoint: u8,
 }
 impl Default for SyncRequest {
     fn default() -> Self {
@@ -101,7 +101,7 @@ impl SyncReply {
 #[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
 pub struct QualityReport {
     pub frame_advantage: i8,
-    pub ping: u32,
+    pub ping: u128,
 }
 
 impl QualityReport {
@@ -115,7 +115,7 @@ impl QualityReport {
 
 #[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
 pub struct QualityReply {
-    pub pong: u32,
+    pub pong: u128,
 }
 
 impl QualityReply {
@@ -135,7 +135,6 @@ pub struct Input {
 
     pub num_bits: u16,
 
-    // input_size: u8, // TODO: shouldn't be in every single packet
     #[serde(with = "BigArray")]
     pub bits: [u8; MAX_COMPRESSED_BITS],
 }
@@ -187,6 +186,7 @@ pub enum MsgEnum {
     QualityReply(QualityReply),
     Input(Input),
     InputAck(InputAck),
+    KeepAlive,
     None,
 }
 
