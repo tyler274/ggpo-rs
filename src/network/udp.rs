@@ -9,6 +9,8 @@ use smol::Async;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use thiserror::Error;
 
+pub const ZSTD_LEVEL: i32 = 7;
+
 pub trait UdpCallback {
     fn on_msg(&self, _from: &SocketAddr, _msg: &UdpMsg, _len: usize) {}
 }
@@ -62,6 +64,10 @@ where
     // state management
     callbacks: Option<&'callbacks mut Callbacks>,
     // poll: Option<&'poll mut Poll>,
+
+    // zstd Encoder and Decoder
+    compressor: zstd::block::Compressor,
+    decompressor: zstd::block::Decompressor,
 }
 
 impl<'callbacks, Callbacks> Default for Udp<'callbacks, Callbacks>
@@ -69,11 +75,7 @@ where
     Callbacks: UdpCallback,
 {
     fn default() -> Self {
-        Udp {
-            socket: None,
-            callbacks: None,
-            // poll: None,
-        }
+        Self::new()
     }
 }
 
@@ -81,11 +83,13 @@ impl<'callbacks, Callbacks> Udp<'callbacks, Callbacks>
 where
     Callbacks: UdpCallback,
 {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Udp {
             socket: None,
             callbacks: None,
             // poll: None,
+            compressor: zstd::block::Compressor::new(),
+            decompressor: zstd::block::Decompressor::new(),
         }
     }
     pub async fn init(
@@ -111,12 +115,14 @@ where
         msg: Arc<UdpMsg>,
         destination: &[SocketAddr],
     ) -> Result<(), UdpError> {
-        let serialized = bincode::serialize(&(*msg))?;
+        let compressed = self
+            .compressor
+            .compress(&bincode::serialize(&(*msg))?, ZSTD_LEVEL)?;
         let resp = self
             .socket
             .as_ref()
             .ok_or(UdpError::SocketUninit)?
-            .send_to(&serialized, destination)
+            .send_to(&compressed, destination)
             .await?;
 
         let peer_addr = self
@@ -126,7 +132,7 @@ where
             .peer_addr()?;
         info!(
             "sent packet length {} to {}:{} (resp:{}).\n",
-            serialized.len(),
+            compressed.len(),
             peer_addr.ip(),
             peer_addr.port(),
             resp
@@ -134,7 +140,7 @@ where
         Ok(())
     }
 
-    pub async fn on_loop_poll(&self, _cookie: i32) -> Result<bool, UdpError> {
+    pub async fn on_loop_poll(&mut self, _cookie: i32) -> Result<bool, UdpError> {
         let mut recv_buf = BytesMut::new();
         let (len, recv_address) = self
             .socket
@@ -143,7 +149,12 @@ where
             .recv_from(recv_buf.as_mut())
             .await?;
 
-        let msg: UdpMsg = bincode::deserialize(recv_buf.as_mut())?;
+        let msg: UdpMsg = bincode::deserialize(
+            &self
+                .decompressor
+                .decompress(recv_buf.as_mut(), std::mem::size_of::<UdpMsg>())?,
+        )?;
+
         self.callbacks
             .as_ref()
             .ok_or(UdpError::CallbacksUninit)?

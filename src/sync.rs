@@ -4,8 +4,9 @@ use crate::input_queue::InputQueue;
 use crate::network::udp_msg::ConnectStatus;
 use bytes::Bytes;
 use log::{error, info, warn};
+use std::collections::VecDeque;
 
-use arraydeque::ArrayDeque;
+// use arraydeque::ArrayDeque;
 
 const MAX_PREDICTION_FRAMES: usize = 8;
 
@@ -84,7 +85,8 @@ where
 
     input_queues: Option<Vec<InputQueue>>,
 
-    event_queue: ArrayDeque<[Event; 32]>,
+    // event_queue: ArrayDeque<[Event; 32]>,
+    event_queue: VecDeque<Event>,
     local_connect_status: Option<Vec<&'network ConnectStatus>>,
 }
 
@@ -106,7 +108,8 @@ where
             config: None,
             rolling_back: false,
             input_queues: None,
-            event_queue: ArrayDeque::new(),
+            // event_queue: ArrayDeque::new(),
+            event_queue: VecDeque::with_capacity(32),
         }
     }
 }

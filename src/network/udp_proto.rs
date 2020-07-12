@@ -10,14 +10,17 @@ use crate::{
     },
     time_sync::TimeSync,
 };
-use arraydeque::ArrayDeque;
 use async_dup::{Arc, Mutex};
 use log::{error, info, warn};
 use rand::prelude::*;
 use rand_distr::{Distribution, Normal};
-use std::collections::VecDeque;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use thiserror::Error;
+
+use std::{
+    collections::VecDeque,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::{SystemTime, SystemTimeError, UNIX_EPOCH},
+};
 
 // TODO: Refactor all Strings in Result types here with error's from this enum.
 #[derive(Debug, Error)]
@@ -42,7 +45,7 @@ pub enum UdpProtocolError {
     #[error("Time Travel has been reported, please double check system clocks.")]
     TimeTravel {
         #[from]
-        source: std::time::SystemTimeError,
+        source: SystemTimeError,
     },
 }
 
@@ -381,6 +384,16 @@ impl<'a, Callback: UdpCallback> UdpProtocol<'a, Callback> {
 
         self.pump_send_queue().await?;
         Ok(())
+    }
+
+    pub async fn on_loop_pool(&mut self, cookie: i32) -> Result<(bool), UdpProtocolError> {
+        if self.udp.is_none() {
+            return Ok(true);
+        }
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+
+        Ok(true)
     }
 
     pub fn on_input_ack(&mut self, msg: Arc<UdpMsg>) -> Result<(), UdpProtocolError> {
