@@ -43,7 +43,7 @@ impl Default for ConnectStatus {
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct Header {
-    pub _magic: u16,
+    pub magic: u16,
     pub _sequence_number: u16,
     pub packet_type: MsgType,
 }
@@ -52,7 +52,7 @@ impl Header {
     pub const fn new(t: MsgType) -> Self {
         Header {
             packet_type: t,
-            _magic: 0,
+            magic: 0,
             _sequence_number: 0,
         }
     }
@@ -90,7 +90,7 @@ impl SyncRequest {
 
 #[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
 pub struct SyncReply {
-    random_reply: u32,
+    pub random_reply: u32,
 }
 
 impl SyncReply {
@@ -100,8 +100,8 @@ impl SyncReply {
 }
 #[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
 pub struct QualityReport {
-    frame_advantage: i8,
-    ping: u32,
+    pub frame_advantage: i8,
+    pub ping: u32,
 }
 
 impl QualityReport {
@@ -115,7 +115,7 @@ impl QualityReport {
 
 #[derive(Serialize, Deserialize, Default, Copy, Clone, Debug)]
 pub struct QualityReply {
-    pong: u32,
+    pub pong: u32,
 }
 
 impl QualityReply {
@@ -128,10 +128,10 @@ impl QualityReply {
 pub struct Input {
     pub peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
 
-    pub start_frame: u32,
+    pub start_frame: Frame,
 
-    pub disconnect_requested: i32, // default value should be 1
-    pub ack_frame: i32,            // default value should be 31
+    pub disconnect_requested: bool, // default value should be 1
+    pub ack_frame: Frame,           // default value should be 31
 
     pub num_bits: u16,
 
@@ -145,9 +145,9 @@ impl Input {
         Self {
             bits: [b'0'; MAX_COMPRESSED_BITS],
             peer_connect_status: [ConnectStatus::new(); UDP_MSG_MAX_PLAYERS],
-            start_frame: 0,
-            disconnect_requested: 1,
-            ack_frame: 31,
+            start_frame: Some(0),
+            disconnect_requested: true,
+            ack_frame: Some(31),
 
             num_bits: 0,
         }
@@ -162,12 +162,14 @@ impl Default for Input {
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct InputAck {
-    ack_frame: i32, // default value should be 31
+    pub ack_frame: Frame, // default value should be 31
 }
 
 impl InputAck {
     pub const fn new() -> Self {
-        Self { ack_frame: 31 }
+        Self {
+            ack_frame: Some(31),
+        }
     }
 }
 
@@ -239,14 +241,7 @@ impl UdpMsg {
         match t {
             MsgType::Input => Self {
                 header: Header::new(t),
-                message: MsgEnum::Input(Input {
-                    bits: [b'0'; MAX_COMPRESSED_BITS],
-                    num_bits: 0,
-                    peer_connect_status: [ConnectStatus::new(); UDP_MSG_MAX_PLAYERS],
-                    start_frame: 0,
-                    disconnect_requested: 1,
-                    ack_frame: 31,
-                }),
+                message: MsgEnum::Input(Input::new()),
             },
             MsgType::Invalid => Self {
                 header: Header::new(t),

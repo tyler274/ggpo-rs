@@ -387,7 +387,6 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         ) {
             (Some(local_connect_status), Some(input_queues), Some(config)) => {
                 assert!(values.capacity() >= config.num_players);
-
                 values.fill([b'0'; INPUT_BUFFER_SIZE]);
                 for i in 0..config.num_players {
                     let mut input: GameInput = GameInput::new();

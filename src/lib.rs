@@ -17,6 +17,7 @@ pub mod network {
     pub mod udp_msg;
     pub mod udp_proto;
 }
+pub mod bitvector;
 pub mod player;
 pub mod sync;
 pub mod time_sync;

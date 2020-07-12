@@ -1,4 +1,4 @@
-use crate::game_input::GameInput;
+use crate::game_input::{FrameNum, GameInput};
 use log::{error, info};
 use std::cmp::min;
 
@@ -42,11 +42,8 @@ impl TimeSync {
         }
     }
 
-    pub fn recommend_frame_wait_duration(
-        &mut self,
-        require_idle_input: bool,
-        count: &mut usize,
-    ) -> i32 {
+    pub fn recommend_frame_wait_duration(&mut self, require_idle_input: bool) -> FrameNum {
+        let mut count = 0;
         // Average our local and remote frame advantages
         let mut sum = 0;
         let (advantage, r_advantage): (f32, f32);
@@ -60,7 +57,7 @@ impl TimeSync {
         }
         r_advantage = sum as f32 / FRAME_WINDOW_SIZE as f32;
 
-        *count += 1;
+        count += 1;
 
         // See if someone should take action.  The person furthest ahead
         // needs to slow down so the other user can catch up.
@@ -72,13 +69,13 @@ impl TimeSync {
         // Both clients agree that we're the one ahead.  Split
         // the difference between the two to figure out how long to
         // sleep for.
-        let sleep_frames: i32 = (((r_advantage - advantage) / 2.) + 0.5) as i32;
+        let sleep_frames: FrameNum = (((r_advantage - advantage) / 2.) + 0.5) as FrameNum;
 
         info!("iteration {}: sleep frames is {}\n", count, sleep_frames);
 
         // Some things just aren't worth correcting for.  Make sure
         // the difference is relevant before proceeding.
-        if sleep_frames < MIN_FRAME_ADVANTAGE as i32 {
+        if sleep_frames < MIN_FRAME_ADVANTAGE as u32 {
             return 0;
         }
 
@@ -100,6 +97,6 @@ impl TimeSync {
         }
 
         // Success!!! Recommend the number of frames to sleep and adjust
-        return min(sleep_frames, MAX_FRAME_ADVANTAGE as i32);
+        return min(sleep_frames, MAX_FRAME_ADVANTAGE as FrameNum);
     }
 }

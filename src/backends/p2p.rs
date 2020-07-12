@@ -36,7 +36,7 @@ where
 
     _next_spectator_frame: Frame,
     _disconnect_timeout: std::time::Duration,
-    _disconnect_notify_start: std::time::Instant,
+    _disconnect_notify_start: std::time::SystemTime,
 
     _local_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
 }

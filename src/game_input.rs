@@ -40,7 +40,7 @@ impl GameInput {
             },
         }
     }
-    const fn _value(&self, i: usize) -> bool {
+    pub const fn value(&self, i: usize) -> bool {
         (self.bits[i / 8] & (1 << (i % 8))) != 0
     }
     fn _set(&mut self, i: usize) {
@@ -63,7 +63,7 @@ impl GameInput {
         }
 
         for i in 0..(self.size as usize) * 8 {
-            if self._value(i) {
+            if self.value(i) {
                 buf.push_str(&format!("{:2}", i));
             }
         }

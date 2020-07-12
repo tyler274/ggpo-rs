@@ -1,5 +1,7 @@
 use crate::network::udp_msg::UdpMsg;
 
+use async_compression::futures::{bufread::ZstdDecoder, write::ZstdEncoder};
+use async_dup::Arc;
 use async_net::UdpSocket;
 use bytes::{Bytes, BytesMut};
 use log::{error, info};
@@ -17,6 +19,16 @@ pub enum UdpError {
     SocketUninit,
     #[error("Session callbacks uninitialized.")]
     CallbacksUninit,
+    #[error("IO Error")]
+    Io {
+        #[from]
+        source: std::io::Error,
+    },
+    #[error("Bincode (de)serialization Error")]
+    Bincode {
+        #[from]
+        source: bincode::Error,
+    },
 }
 
 async fn create_socket(socket_address: SocketAddr, retries: usize) -> std::io::Result<UdpSocket> {
@@ -79,64 +91,39 @@ where
     pub async fn init(
         &mut self,
         port: u16,
-        // poll: &'poll mut Poll,
         callbacks: &'callbacks mut Callbacks,
-    ) -> Result<(), String> {
+    ) -> Result<(), UdpError> {
         self.callbacks = Some(callbacks);
-        // self.poll = Some(poll);
-        // ? unwrapping sketch time.
-        // self.poll?
-        //     .registry()
-        //     .register(self.socket?, token, Interest::WRITABLE)
         info!("binding udp socket to port {}.\n", port);
         self.socket = Some(
             create_socket(
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port),
                 3,
             )
-            .await
-            .map_err(|e| e.to_string())?,
+            .await?,
         );
-        // self.poll
-        //     .as_ref()
-        //     .ok_or("Poll not init'd")?
-        //     .registry()
-        //     .register(
-        //         self.socket.as_mut().ok_or("Socket not init'd")?,
-        //         SENDER,
-        //         Interest::WRITABLE,
-        //     )
-        //     .map_err(|e| e.to_string())?;
 
         Ok(())
     }
 
     pub async fn send_to(
         &mut self,
-        // mut buffer: Bytes,
-        msg: &[UdpMsg],
-        // _len: usize,
-        // _flags: i32,
+        msg: Arc<UdpMsg>,
         destination: &[SocketAddr],
-        // _destlen: usize,
-    ) -> Result<(), String> {
-        let serialized = bincode::serialize(msg).map_err(|e| e.to_string())?;
+    ) -> Result<(), UdpError> {
+        let serialized = bincode::serialize(&(*msg))?;
         let resp = self
             .socket
             .as_ref()
-            .ok_or(UdpError::SocketUninit)
-            .map_err(|e| e.to_string())?
+            .ok_or(UdpError::SocketUninit)?
             .send_to(&serialized, destination)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
         let peer_addr = self
             .socket
             .as_ref()
-            .ok_or(UdpError::SocketUninit)
-            .map_err(|e| e.to_string())?
-            .peer_addr()
-            .map_err(|e| e.to_string())?;
+            .ok_or(UdpError::SocketUninit)?
+            .peer_addr()?;
         info!(
             "sent packet length {} to {}:{} (resp:{}).\n",
             serialized.len(),
@@ -146,23 +133,20 @@ where
         );
         Ok(())
     }
-    // void*
-    pub async fn on_loop_poll(&self, _cookie: i32) -> Result<bool, String> {
+
+    pub async fn on_loop_poll(&self, _cookie: i32) -> Result<bool, UdpError> {
         let mut recv_buf = BytesMut::new();
         let (len, recv_address) = self
             .socket
             .as_ref()
-            .ok_or(UdpError::SocketUninit)
-            .map_err(|e| e.to_string())?
+            .ok_or(UdpError::SocketUninit)?
             .recv_from(recv_buf.as_mut())
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
-        let msg: UdpMsg = bincode::deserialize(recv_buf.as_mut()).map_err(|e| e.to_string())?;
+        let msg: UdpMsg = bincode::deserialize(recv_buf.as_mut())?;
         self.callbacks
             .as_ref()
-            .ok_or(UdpError::CallbacksUninit)
-            .map_err(|e| e.to_string())?
+            .ok_or(UdpError::CallbacksUninit)?
             .on_msg(&recv_address, &msg, len);
         Ok(true)
     }
