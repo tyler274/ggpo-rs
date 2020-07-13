@@ -13,10 +13,14 @@ use async_net::UdpSocket;
 // use mio::{Events, Interest, Poll, Token};
 use std::net::{self, IpAddr, SocketAddr};
 // use std::task::{Context, Poll};
+use thiserror::Error;
 
 const RECOMMENDATION_INTERVAL: i32 = 240;
 const DEFAULT_DISCONNECT_TIMEOUT: i32 = 5000;
 const DEFAULT_DISCONNECT_NOTIFY_START: i32 = 750;
+
+#[derive(Debug, Error)]
+pub enum Peer2PeerError {}
 pub struct Peer2PeerBackend<'callbacks, 'network, GGPOCallbacks, Syncer>
 where
     GGPOCallbacks: GGPOSessionCallbacks + Send + Sync,

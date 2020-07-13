@@ -20,7 +20,7 @@ pub enum MsgType {
     InputAck = 7,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct ConnectStatus {
     pub disconnected: bool,
     pub last_frame: Frame,

@@ -44,16 +44,16 @@ impl GameInput {
     pub const fn value(&self, i: usize) -> bool {
         (self.bits[i / 8] & (1 << (i % 8))) != 0
     }
-    fn _set(&mut self, i: usize) {
+    pub fn set(&mut self, i: usize) {
         self.bits[i / 8] |= 1 << (i % 8);
     }
-    fn _clear(&mut self, i: usize) {
+    pub fn clear(&mut self, i: usize) {
         self.bits[i / 8] &= !(1 << (i % 8));
     }
     pub fn erase(&mut self) {
         self.bits = [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
     }
-    fn _describe(&self, show_frame: bool) -> String {
+    pub fn describe(&self, show_frame: bool) -> String {
         let mut buf: String = String::from("");
         if let Some(frame) = self.frame {
             if show_frame {
