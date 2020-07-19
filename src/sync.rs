@@ -1,24 +1,25 @@
 use crate::game_input::{Frame, FrameNum, GameInput, InputBuffer, INPUT_BUFFER_SIZE};
-use crate::ggpo::GGPOSessionCallbacks;
+use crate::ggpo::{GGPOSessionCallbacks, GGPO_MAX_PREDICTION_FRAMES};
 use crate::input_queue::InputQueue;
 use crate::network::udp_msg::ConnectStatus;
 use bytes::Bytes;
 use log::{error, info, warn};
 use std::collections::VecDeque;
 
+use async_mutex::Mutex;
+use std::sync::Arc;
+
 // use arraydeque::ArrayDeque;
 
-const MAX_PREDICTION_FRAMES: usize = 8;
-
-#[derive(Debug)]
-pub struct Config<'a, T: GGPOSessionCallbacks> {
-    callbacks: Option<&'a mut T>,
+#[derive(Debug, Clone)]
+pub struct Config<GGPOSessionCallbacks> {
+    callbacks: Option<Arc<Mutex<GGPOSessionCallbacks>>>,
     num_prediction_frames: FrameNum,
     num_players: usize,
     input_size: usize,
 }
 
-impl<'a, T: GGPOSessionCallbacks> Default for Config<'a, T> {
+impl<T: GGPOSessionCallbacks> Default for Config<T> {
     fn default() -> Self {
         Config {
             callbacks: None,
@@ -29,22 +30,24 @@ impl<'a, T: GGPOSessionCallbacks> Default for Config<'a, T> {
     }
 }
 
-impl<'a, T: GGPOSessionCallbacks> Config<'a, T> {
+impl<T: GGPOSessionCallbacks> Config<T> {
     pub fn new() -> Self {
         Default::default()
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 enum Type {
     _ConfirmedInput,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Event {
     _input_type: Type,
     _input: GameInput,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SavedFrame {
     size: usize,
     frame: Frame,
@@ -65,18 +68,17 @@ impl SavedFrame {
 
 const BLANK_FRAME: SavedFrame = SavedFrame::new();
 
+#[derive(Debug, Clone)]
 struct SavedState {
-    frames: [SavedFrame; MAX_PREDICTION_FRAMES + 2],
+    frames: [SavedFrame; GGPO_MAX_PREDICTION_FRAMES + 2],
     head: usize,
 }
 
-pub struct GGPOSync<'callbacks, 'network, Callbacks>
-where
-    Callbacks: GGPOSessionCallbacks,
-{
-    callbacks: Option<&'callbacks mut Callbacks>,
+#[derive(Clone)]
+pub struct GGPOSync<T: GGPOSessionCallbacks + Send + Sync + Clone> {
+    callbacks: Option<Arc<Mutex<T>>>,
     saved_state: SavedState,
-    config: Option<&'callbacks mut Config<'callbacks, Callbacks>>,
+    config: Option<Config<T>>,
 
     rolling_back: bool,
     last_confirmed_frame: Frame,
@@ -87,14 +89,11 @@ where
 
     // event_queue: ArrayDeque<[Event; 32]>,
     event_queue: VecDeque<Event>,
-    local_connect_status: Option<Vec<&'network ConnectStatus>>,
+    local_connect_status: Option<Vec<ConnectStatus>>,
 }
 
-impl<'a, 'b, Callbacks> Default for GGPOSync<'a, 'b, Callbacks>
-where
-    Callbacks: GGPOSessionCallbacks,
-{
-    fn default() -> GGPOSync<'a, 'b, Callbacks> {
+impl<T: GGPOSessionCallbacks + Send + Sync + Clone> Default for GGPOSync<T> {
+    fn default() -> GGPOSync<T> {
         GGPOSync {
             local_connect_status: None,
             frame_count: 0,
@@ -102,7 +101,7 @@ where
             max_prediction_frames: 0,
             saved_state: SavedState {
                 head: 0,
-                frames: [BLANK_FRAME; MAX_PREDICTION_FRAMES + 2],
+                frames: [BLANK_FRAME; GGPO_MAX_PREDICTION_FRAMES + 2],
             },
             callbacks: None,
             config: None,
@@ -114,51 +113,48 @@ where
     }
 }
 
-pub trait SyncTrait<'a, 'b, Callbacks>
-where
-    Callbacks: GGPOSessionCallbacks,
-{
-    fn new(connect_status: Vec<&'b ConnectStatus>) -> GGPOSync<'a, 'b, Callbacks>;
-    fn init(&mut self, config: &'a mut Config<'a, Callbacks>);
-    fn set_last_confirmed_frame(&mut self, frame: Frame);
-    fn set_frame_delay(&mut self, queue: usize, delay: usize);
-    fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
-    fn add_remote_input(&mut self, queue: usize, input: &GameInput);
-    // void *....................
-    fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize;
-    fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
+// pub trait SyncTrait<T: GGPOSessionCallbacks> {
+//     fn new(connect_status: Vec<ConnectStatus>) -> GGPOSync<T>;
+//     fn init(&mut self, config: &mut Config<T>);
+//     fn set_last_confirmed_frame(&mut self, frame: Frame);
+//     fn set_frame_delay(&mut self, queue: usize, delay: usize);
+//     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
+//     fn add_remote_input(&mut self, queue: usize, input: &GameInput);
+//     // void *....................
+//     fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize;
+//     fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
 
-    fn check_simulation(&mut self);
-    fn adjust_simulation(&mut self, seek_to: FrameNum);
-    // void......again
-    fn increment_frame(&mut self);
+//     fn check_simulation(&mut self);
+//     fn adjust_simulation(&mut self, seek_to: FrameNum);
+//     // void......again
+//     fn increment_frame(&mut self);
 
-    fn get_frame_count(&self) -> FrameNum;
-    fn in_rollback(&self) -> bool;
-    fn get_event(&mut self) -> Option<Event>;
+//     fn get_frame_count(&self) -> FrameNum;
+//     fn in_rollback(&self) -> bool;
+//     fn get_event(&mut self) -> Option<Event>;
 
-    fn load_frame(&mut self, frame: Frame);
-    fn save_current_frame(&mut self);
-    fn find_saved_frame_index(&self, frame: Frame) -> usize;
-    fn get_last_saved_frame(&self) -> &SavedFrame;
+//     fn load_frame(&mut self, frame: Frame);
+//     fn save_current_frame(&mut self);
+//     fn find_saved_frame_index(&self, frame: Frame) -> usize;
+//     fn get_last_saved_frame(&self) -> &SavedFrame;
 
-    fn create_queues(&mut self) -> bool;
-    fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool;
-    fn reset_prediction(&mut self, frame_number: FrameNum);
-}
+//     fn create_queues(&mut self) -> bool;
+//     fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool;
+//     fn reset_prediction(&mut self, frame_number: FrameNum);
+// }
 
-impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, T> {
-    fn new(connect_status: Vec<&'b ConnectStatus>) -> Self {
+impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
+    fn new(connect_status: Vec<ConnectStatus>) -> Self {
         GGPOSync {
             local_connect_status: Some(Vec::from(connect_status)),
             ..Default::default()
         }
     }
 
-    fn init(&mut self, config: &'a mut Config<'a, T>) {
+    fn init(&mut self, config: Config<T>) {
         // self.callbacks = config.callbacks;
         self.max_prediction_frames = config.num_prediction_frames;
-        self.config = Some(config);
+        self.config = Some(config.clone());
         self.frame_count = 0;
         self.rolling_back = false;
 
@@ -255,7 +251,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         }
     }
 
-    fn save_current_frame(&mut self) {
+    async fn save_current_frame(&mut self) {
         // Copying this for reference later.
         // TODO: zstd compression
         /*
@@ -273,7 +269,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
                 }),
                 buffer,
             ) => {
-                callbacks.free_buffer(buffer);
+                callbacks.lock().await.free_buffer(buffer);
                 state.buffer.clear();
             }
             (
@@ -288,7 +284,12 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         state.frame = Some(self.frame_count);
         match self.callbacks.as_mut() {
             Some(callbacks) => {
-                callbacks.save_game_state(&state.buffer, &state.size, state.checksum, state.frame);
+                callbacks.lock().await.save_game_state(
+                    &state.buffer,
+                    &state.size,
+                    state.checksum,
+                    state.frame,
+                );
             }
             None => error!("Callbacks not initialized"),
         }
@@ -336,7 +337,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         j
     }
 
-    fn set_frame_delay(&mut self, queue: usize, delay: usize) {
+    pub fn set_frame_delay(&mut self, queue: usize, delay: usize) {
         match self.input_queues.as_mut() {
             Some(input_queues) => input_queues[queue].set_frame_delay(delay),
             None => {
@@ -514,7 +515,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         false
     }
 
-    fn adjust_simulation(&mut self, seek_to: FrameNum) {
+    async fn adjust_simulation(&mut self, seek_to: FrameNum) {
         let framecount = self.frame_count;
         let count = self.frame_count - seek_to;
 
@@ -534,7 +535,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
 
         if let Some(callbacks) = &mut self.callbacks {
             for _i in 0..count {
-                callbacks.advance_frame(0);
+                callbacks.lock().await.advance_frame(0);
             }
         } else {
             error!("Callbacks are uninitialized");
@@ -547,7 +548,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         info!("---\n");
     }
 
-    fn load_frame(&mut self, frame: Frame) {
+    async fn load_frame(&mut self, frame: Frame) {
         // find the frame in question
         if frame == Some(self.frame_count) {
             info!("Skipping NOP.\n");
@@ -579,7 +580,7 @@ impl<'a, 'b, T: GGPOSessionCallbacks> SyncTrait<'a, 'b, T> for GGPOSync<'a, 'b, 
         match (&mut self.callbacks, &state.buffer) {
             (_, s) if s.len() == 0 => error!("State buffer not initialized"),
             (Some(callbacks), buffer) => {
-                callbacks.load_game_state(&buffer, state.size);
+                callbacks.lock().await.load_game_state(&buffer, state.size);
             }
             (None, _) => error!("Callbacks not initialized!"),
         };

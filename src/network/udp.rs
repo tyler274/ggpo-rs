@@ -2,19 +2,23 @@ use crate::network::udp_msg::UdpMsg;
 
 // use async_compression::futures::{bufread::ZstdDecoder, write::ZstdEncoder};
 // use async_dup::Arc;
+use async_mutex::Mutex;
 use async_net::UdpSocket;
+use async_trait::async_trait;
+use async_trait_ext::async_trait_ext;
 use bytes::{Bytes, BytesMut};
 use log::{error, info};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-// use std::ops::as_ref;
 use std::ops::Deref;
+use std::sync::{Arc, Weak};
+
 use thiserror::Error;
 
 pub const ZSTD_LEVEL: i32 = 7;
 
+#[async_trait(?Send)]
 pub trait UdpCallback {
-    fn on_msg(&self, _from: &SocketAddr, _msg: &UdpMsg, _len: usize) {}
+    async fn on_msg(&mut self, from: &SocketAddr, msg: &UdpMsg, len: usize) -> Result<(), String>;
 }
 
 #[derive(Debug, Error)]
@@ -33,6 +37,8 @@ pub enum UdpError {
         #[from]
         source: bincode::Error,
     },
+    #[error("Callback error {0}")]
+    Callback(String),
 }
 
 async fn create_socket(socket_address: SocketAddr, retries: usize) -> std::io::Result<UdpSocket> {
@@ -56,7 +62,7 @@ async fn create_socket(socket_address: SocketAddr, retries: usize) -> std::io::R
     ))
 }
 
-pub struct Udp<'callbacks, Callbacks>
+pub struct Udp<Callbacks>
 where
     Callbacks: UdpCallback,
 {
@@ -64,7 +70,7 @@ where
     socket: Option<UdpSocket>,
 
     // state management
-    callbacks: Option<&'callbacks mut Callbacks>,
+    callbacks: Option<Arc<Mutex<Callbacks>>>,
     // poll: Option<&'poll mut Poll>,
 
     // zstd Encoder and Decoder
@@ -72,7 +78,7 @@ where
     decompressor: zstd::block::Decompressor,
 }
 
-impl<'callbacks, Callbacks> Default for Udp<'callbacks, Callbacks>
+impl<Callbacks> Default for Udp<Callbacks>
 where
     Callbacks: UdpCallback,
 {
@@ -81,7 +87,7 @@ where
     }
 }
 
-impl<'callbacks, Callbacks> Udp<'callbacks, Callbacks>
+impl<Callbacks> Udp<Callbacks>
 where
     Callbacks: UdpCallback,
 {
@@ -89,7 +95,6 @@ where
         Udp {
             socket: None,
             callbacks: None,
-            // poll: None,
             compressor: zstd::block::Compressor::new(),
             decompressor: zstd::block::Decompressor::new(),
         }
@@ -97,7 +102,7 @@ where
     pub async fn init(
         &mut self,
         port: u16,
-        callbacks: &'callbacks mut Callbacks,
+        callbacks: Arc<Mutex<Callbacks>>,
     ) -> Result<(), UdpError> {
         self.callbacks = Some(callbacks);
         info!("binding udp socket to port {}.\n", port);
@@ -142,7 +147,7 @@ where
         Ok(())
     }
 
-    pub async fn on_loop_poll(&mut self, _cookie: i32) -> Result<bool, UdpError> {
+    pub async fn get_msg(&mut self) -> Result<(UdpMsg, usize, SocketAddr), UdpError> {
         let mut recv_buf = BytesMut::new();
         let (len, recv_address) = self
             .socket
@@ -156,11 +161,20 @@ where
                 .decompressor
                 .decompress(recv_buf.as_mut(), std::mem::size_of::<UdpMsg>())?,
         )?;
+        Ok((msg, len, recv_address))
+    }
+
+    pub async fn on_loop_poll(&mut self, _cookie: i32) -> Result<bool, UdpError> {
+        let (msg, len, recv_address) = self.get_msg().await?;
 
         self.callbacks
-            .as_ref()
+            .as_mut()
             .ok_or(UdpError::CallbacksUninit)?
-            .on_msg(&recv_address, &msg, len);
+            .lock()
+            .await
+            .on_msg(&recv_address, &msg, len)
+            .await
+            .map_err(|e| UdpError::Callback(e))?;
         Ok(true)
     }
 }

@@ -1,6 +1,6 @@
 use crate::game_input::{Frame, FrameNum, GameInput, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS};
 use log::info;
-use std::cmp;
+use std::{cmp, fmt::Debug};
 
 const INPUT_QUEUE_LENGTH: usize = 128;
 const DEFAULT_INPUT_SIZE: usize = 4;
@@ -15,7 +15,7 @@ macro_rules! previous_frame {
     };
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct InputQueue {
     _id: usize,
     head: usize,

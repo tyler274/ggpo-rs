@@ -1,8 +1,13 @@
 use crate::game_input::Frame;
 use crate::player::{Player, PlayerHandle};
+use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use log::info;
 use thiserror::Error;
+
+pub const GGPO_MAX_PLAYERS: usize = 4;
+pub const GGPO_MAX_SPECTATORS: usize = 32;
+pub const GGPO_MAX_PREDICTION_FRAMES: usize = 8;
 
 #[derive(Error, Debug)]
 pub enum GGPOError {
@@ -35,34 +40,48 @@ pub enum GGPOError {
     #[error("GGPO invalid request.")]
     InvalidRequest,
 }
-
-pub enum Event {
-    ConnectedToPeer {
-        player: PlayerHandle,
-    },
-    SynchronizingWithPeer {
-        count: i32,
-        total: i32,
-    },
-    SynchronizedWithPeer {
-        player: PlayerHandle,
-    },
-    Running {},
-    DisconnectedFromPeer {
-        player: PlayerHandle,
-    },
-    Timesync {
-        frames_ahead: i32,
-    },
-    ConnectionInterrupted {
-        player: PlayerHandle,
-        disconnect_timeout: i32,
-    },
-    ConnectionResumed {
-        player: PlayerHandle,
-    },
+pub struct ConnectedToPeer {
+    player: PlayerHandle,
 }
 
+pub struct SynchronizingWithPeer {
+    count: i32,
+    total: i32,
+}
+
+pub struct SynchronizedWithPeer {
+    player: PlayerHandle,
+}
+
+pub struct DisconnectedFromPeer {
+    player: PlayerHandle,
+}
+
+pub struct EventTimeSync {
+    frames_ahead: i32,
+}
+
+pub struct ConnectionInterrupted {
+    player: PlayerHandle,
+    disconnect_timeout: i32,
+}
+
+pub struct ConnectionResumed {
+    player: PlayerHandle,
+}
+
+pub enum Event {
+    ConnectedToPeer(ConnectedToPeer),
+    SynchronizingWithPeer(SynchronizingWithPeer),
+    SynchronizedWithPeer(SynchronizedWithPeer),
+    Running,
+    DisconnectedFromPeer(DisconnectedFromPeer),
+    TimeSync(EventTimeSync),
+    ConnectionInterrupted(ConnectionInterrupted),
+    ConnectionResumed(ConnectionResumed),
+}
+
+#[async_trait(?Send)]
 pub trait Session {
     fn do_poll(_timeout: usize) -> Result<(), GGPOError> {
         Ok(())
@@ -105,15 +124,15 @@ pub trait Session {
         Ok(())
     }
 
-    fn set_frame_delay(_player: PlayerHandle, _delay: i32) -> Result<(), GGPOError> {
+    fn set_frame_delay(&mut self, player: PlayerHandle, delay: i32) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 
-    fn set_disconnect_timeout(_timeout: usize) -> Result<(), GGPOError> {
+    async fn set_disconnect_timeout(&mut self, timeout: u128) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 
-    fn set_disconnect_notify_start(_timeout: usize) -> Result<(), GGPOError> {
+    async fn set_disconnect_notify_start(&mut self, timeout: u128) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 }
