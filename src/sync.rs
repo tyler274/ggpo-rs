@@ -1,19 +1,23 @@
-use crate::game_input::{Frame, FrameNum, GameInput, InputBuffer, INPUT_BUFFER_SIZE};
-use crate::ggpo::{GGPOSessionCallbacks, GGPO_MAX_PREDICTION_FRAMES};
-use crate::input_queue::InputQueue;
-use crate::network::udp_msg::ConnectStatus;
-use bytes::Bytes;
-use log::{error, info, warn};
-use std::collections::VecDeque;
+use crate::{
+    game_input::{
+        Frame, FrameNum, GameInput, InputBuffer, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS,
+        INPUT_BUFFER_SIZE,
+    },
+    ggpo::{GGPOSessionCallbacks, GGPO_MAX_PREDICTION_FRAMES},
+    input_queue::InputQueue,
+    network::udp_msg::ConnectStatus,
+};
 
 use async_mutex::Mutex;
-use std::sync::Arc;
+use bytes::Bytes;
+use log::{error, info, warn};
+use std::{collections::VecDeque, sync::Arc};
 
 // use arraydeque::ArrayDeque;
 
 #[derive(Debug, Clone)]
-pub struct Config<GGPOSessionCallbacks> {
-    callbacks: Option<Arc<Mutex<GGPOSessionCallbacks>>>,
+pub struct Config<T: GGPOSessionCallbacks> {
+    callbacks: Option<Arc<Mutex<T>>>,
     num_prediction_frames: FrameNum,
     num_players: usize,
     input_size: usize,
@@ -37,14 +41,24 @@ impl<T: GGPOSessionCallbacks> Config<T> {
 }
 
 #[derive(Debug, Copy, Clone)]
-enum Type {
-    _ConfirmedInput,
+pub enum Type {
+    ConfirmedInput,
+    Other,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct Event {
-    _input_type: Type,
-    _input: GameInput,
+    pub input_type: Type,
+    pub input: GameInput,
+}
+
+impl Event {
+    pub const fn new() -> Self {
+        Self {
+            input_type: Type::Other,
+            input: GameInput::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -120,13 +134,11 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> Default for GGPOSync<T> {
 //     fn set_frame_delay(&mut self, queue: usize, delay: usize);
 //     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
 //     fn add_remote_input(&mut self, queue: usize, input: &GameInput);
-//     // void *....................
 //     fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize;
 //     fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
 
 //     fn check_simulation(&mut self);
 //     fn adjust_simulation(&mut self, seek_to: FrameNum);
-//     // void......again
 //     fn increment_frame(&mut self);
 
 //     fn get_frame_count(&self) -> FrameNum;
@@ -144,14 +156,14 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> Default for GGPOSync<T> {
 // }
 
 impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
-    fn new(connect_status: Vec<ConnectStatus>) -> Self {
+    pub fn new(connect_status: Vec<ConnectStatus>) -> Self {
         GGPOSync {
             local_connect_status: Some(Vec::from(connect_status)),
             ..Default::default()
         }
     }
 
-    fn init(&mut self, config: Config<T>) {
+    pub fn init(&mut self, config: Config<T>) {
         // self.callbacks = config.callbacks;
         self.max_prediction_frames = config.num_prediction_frames;
         self.config = Some(config.clone());
@@ -161,7 +173,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.create_queues();
     }
 
-    fn create_queues(&mut self) -> bool {
+    pub fn create_queues(&mut self) -> bool {
         match (&self.config, &mut self.input_queues) {
             (Some(config), None) => {
                 self.input_queues = Some(Vec::with_capacity(config.num_players));
@@ -181,7 +193,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         true
     }
 
-    fn set_last_confirmed_frame(&mut self, frame: Frame) {
+    pub fn set_last_confirmed_frame(&mut self, frame: Frame) {
         self.last_confirmed_frame = frame;
         match (
             self.last_confirmed_frame,
@@ -207,7 +219,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
     }
 
-    fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool {
+    pub fn add_local_input(&mut self, queue: u32, input: &mut GameInput) -> bool {
         let frames_behind: FrameNum;
         match self.last_confirmed_frame {
             Some(last_confirmed_frame) => frames_behind = self.frame_count - last_confirmed_frame,
@@ -233,11 +245,11 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         input.frame = Some(self.frame_count);
 
         match &mut self.input_queues {
-            Some(input_queues) => input_queues[queue].add_input(*input),
+            Some(input_queues) => input_queues[queue as usize].add_input(*input),
             None => {
                 self.create_queues();
                 if let Some(input_queues) = &mut self.input_queues {
-                    input_queues[queue].add_input(*input);
+                    input_queues[queue as usize].add_input(*input);
                 }
             }
         }
@@ -245,13 +257,13 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         true
     }
 
-    fn add_remote_input(&mut self, queue: usize, input: &GameInput) {
+    pub fn add_remote_input(&mut self, queue: u32, input: &GameInput) {
         if let Some(input_queues) = &mut self.input_queues {
-            input_queues[queue].add_input(*input);
+            input_queues[queue as usize].add_input(*input);
         }
     }
 
-    async fn save_current_frame(&mut self) {
+    pub async fn save_current_frame(&mut self) {
         // Copying this for reference later.
         // TODO: zstd compression
         /*
@@ -312,7 +324,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.saved_state.head += 1;
     }
 
-    fn get_last_saved_frame(&self) -> &SavedFrame {
+    pub fn get_last_saved_frame(&self) -> &SavedFrame {
         let mut i: isize = self.saved_state.head as isize - 1;
         if i < 0 {
             i = self.saved_state.frames.len() as isize - 1;
@@ -320,7 +332,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         &self.saved_state.frames[i as usize]
     }
 
-    fn find_saved_frame_index(&self, frame: Frame) -> usize {
+    pub fn find_saved_frame_index(&self, frame: Frame) -> usize {
         let count = self.saved_state.frames.len();
         let mut j: usize = 0;
 
@@ -348,7 +360,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
     }
 
-    fn reset_prediction(&mut self, frame_number: FrameNum) {
+    pub fn reset_prediction(&mut self, frame_number: FrameNum) {
         match (self.input_queues.as_mut(), self.config.as_ref()) {
             (Some(input_queues), Some(config)) => {
                 for i in 0..config.num_players {
@@ -364,24 +376,28 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
     }
 
-    fn get_event(&mut self) -> Option<Event> {
-        self.event_queue.pop_front()
+    pub fn get_event(&mut self, event: &mut Event) -> bool {
+        if let Some(e) = self.event_queue.pop_front() {
+            *event = e;
+            return true;
+        }
+        false
     }
 
-    fn get_frame_count(&self) -> FrameNum {
+    pub fn get_frame_count(&self) -> FrameNum {
         self.frame_count
     }
 
-    fn in_rollback(&self) -> bool {
+    pub fn in_rollback(&self) -> bool {
         self.rolling_back
     }
 
-    fn increment_frame(&mut self) {
+    pub fn increment_frame(&mut self) {
         self.frame_count += 1;
         self.save_current_frame();
     }
 
-    fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize {
+    pub fn get_confirmed_inputs(&mut self, values: &mut InputBuffer, frame: Frame) -> usize {
         let mut disconnect_flags = 0;
 
         match (
@@ -390,11 +406,12 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
             self.config.as_ref(),
         ) {
             (Some(local_connect_status), Some(input_queues), Some(config)) => {
-                assert!(values.capacity() >= config.num_players);
-                values.fill([b'0'; INPUT_BUFFER_SIZE]);
+                assert!(values.len() >= config.num_players);
+                values.fill([b'0'; GAMEINPUT_MAX_BYTES]);
                 for i in 0..config.num_players {
                     let mut input: GameInput = GameInput::new();
                     if let Some(frame_value) = frame {
+                        // TODO: What was the original intent when -1 is received as a frame.
                         if local_connect_status[i].disconnected
                             && frame_value as i32
                                 > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
@@ -404,7 +421,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
                         } else {
                             input_queues[i].get_confirmed_input(frame, &mut input);
                         }
-                        values[i] = input.bits;
+                        values[i] = input.bits[i];
                     }
                 }
             }
@@ -424,8 +441,8 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         disconnect_flags
     }
 
-    fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize {
-        let mut disconnect_flags: usize = 0;
+    pub fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> i32 {
+        let mut disconnect_flags = 0;
 
         match (
             self.local_connect_status.as_ref(),
@@ -435,10 +452,11 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
             (Some(local_connect_status), Some(input_queues), Some(config)) => {
                 assert!(values.capacity() >= config.num_players);
 
-                values.fill([b'0'; INPUT_BUFFER_SIZE]);
+                values.fill([[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]);
 
                 for i in 0..config.num_players {
                     let mut input: GameInput = GameInput::new();
+                    // TODO: Make this unwrap cleaner, or at least document my reasoning.
                     if local_connect_status[i].disconnected
                         && self.frame_count as i32
                             > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
@@ -467,14 +485,14 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         disconnect_flags
     }
 
-    fn check_simulation(&mut self) {
+    pub async fn check_simulation(&mut self) {
         let mut seek_to: FrameNum = 0;
         if !self.check_simulation_consistency(&mut seek_to) {
-            self.adjust_simulation(seek_to);
+            self.adjust_simulation(seek_to).await;
         }
     }
 
-    fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool {
+    pub fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool {
         let mut first_incorrect: Frame = None;
 
         match (&self.input_queues, self.config.as_ref()) {
@@ -515,7 +533,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         false
     }
 
-    async fn adjust_simulation(&mut self, seek_to: FrameNum) {
+    pub async fn adjust_simulation(&mut self, seek_to: FrameNum) {
         let framecount = self.frame_count;
         let count = self.frame_count - seek_to;
 
@@ -548,7 +566,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         info!("---\n");
     }
 
-    async fn load_frame(&mut self, frame: Frame) {
+    pub async fn load_frame(&mut self, frame: Frame) {
         // find the frame in question
         if frame == Some(self.frame_count) {
             info!("Skipping NOP.\n");

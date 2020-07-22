@@ -51,7 +51,7 @@ impl Default for InputQueue {
             prediction: GameInput::init(None, None, DEFAULT_INPUT_SIZE),
             inputs: [GameInput::init(
                 None,
-                Some(&[b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS]),
+                Some(&[[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]),
                 DEFAULT_INPUT_SIZE,
             ); INPUT_QUEUE_LENGTH],
         }
@@ -80,7 +80,7 @@ impl InputQueue {
             prediction: GameInput::init(None, None, input_size),
             inputs: [GameInput::init(
                 None,
-                Some(&[b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS]),
+                Some(&[[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]),
                 input_size,
             ); INPUT_QUEUE_LENGTH],
         }

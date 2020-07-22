@@ -1,6 +1,6 @@
 use crate::{
     bitvector,
-    game_input::{Frame, FrameNum, GameInput},
+    game_input::{Frame, FrameNum, GameInput, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS},
     ggpo,
     network::{
         udp::{Udp, UdpCallback, UdpError},
@@ -67,13 +67,13 @@ pub enum UdpProtoError {
 }
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Synchronizing {
-    total: u32,
-    count: u32,
+    pub total: u32,
+    pub count: u32,
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct NetworkInterrupted {
-    disconnect_timeout: u128,
+    pub disconnect_timeout: u128,
 }
 
 #[derive(Debug)]
@@ -90,15 +90,15 @@ pub enum Event {
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Syncing {
-    roundtrips_remaining: u32,
-    random: u32,
+    pub roundtrips_remaining: u32,
+    pub random: u32,
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Running {
-    last_quality_report_time: u128,
-    last_network_stats_interval: u128,
-    last_input_packet_recv_time: u128,
+    pub last_quality_report_time: u128,
+    pub last_network_stats_interval: u128,
+    pub last_input_packet_recv_time: u128,
 }
 
 // impl Running {
@@ -171,14 +171,17 @@ impl Default for OoPacket {
     }
 }
 
-pub struct UdpProtocol<Callback: UdpCallback> {
+pub struct UdpProtocol<T: UdpCallback + Send + Sync> {
+    // RNG
+    rng: StdRng,
     /*
      * Network transmission information
      */
-    udp: Option<Mutex<Udp<Callback>>>,
+    udp: Option<Arc<Mutex<Udp<T>>>>,
     peer_addr: Option<SocketAddr>,
     magic_number: u16,
-    queue: i32,
+    //TODO: Make queue's type consistent, and more importantly is the -1 init value relevant.
+    queue: i64,
     remote_magic_number: u16,
     connected: bool,
     send_latency: i32,
@@ -196,7 +199,7 @@ pub struct UdpProtocol<Callback: UdpCallback> {
     /*
      * The state machine
      */
-    local_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
+    local_connect_status: [Arc<Mutex<ConnectStatus>>; UDP_MSG_MAX_PLAYERS],
     peer_connect_status: [ConnectStatus; UDP_MSG_MAX_PLAYERS],
 
     state: State,
@@ -238,9 +241,15 @@ pub struct UdpProtocol<Callback: UdpCallback> {
     event_queue: VecDeque<Event>,
 }
 
-impl<Callback: UdpCallback> UdpProtocol<Callback> {
+impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
     pub fn new() -> Self {
+        let mut connect_status: [Arc<Mutex<ConnectStatus>>; UDP_MSG_MAX_PLAYERS] =
+            Default::default();
+        for i in 0..UDP_MSG_MAX_PLAYERS {
+            connect_status[i] = Arc::new(Mutex::new(ConnectStatus::new()));
+        }
         Self {
+            rng: StdRng::from_entropy(),
             local_frame_advantage: 0,
             remote_frame_advantage: 0,
             queue: -1,
@@ -279,7 +288,7 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
             send_queue: VecDeque::with_capacity(64),
             round_trip_time: 0,
             kbps_sent: 0,
-            local_connect_status: [Default::default(); UDP_MSG_MAX_PLAYERS],
+            local_connect_status: connect_status,
             state: State::Starting,
             pending_output: VecDeque::with_capacity(64),
             last_recv_time: std::time::SystemTime::now(),
@@ -289,17 +298,17 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
     }
     pub fn init(
         &mut self,
-        udp: Mutex<Udp<Callback>>,
-        queue: i32,
+        udp: Arc<Mutex<Udp<Callback>>>,
+        queue: u32,
         addr: SocketAddr,
-        status: &[ConnectStatus; UDP_MSG_MAX_PLAYERS],
+        status: &[Arc<Mutex<ConnectStatus>>; UDP_MSG_MAX_PLAYERS],
     ) {
         self.udp = Some(udp);
-        self.queue = queue;
+        self.queue = queue as i64;
         self.local_connect_status = status.clone();
 
         self.peer_addr = Some(addr);
-        self.magic_number = rand::thread_rng().gen();
+        self.magic_number = self.rng.gen();
     }
 
     pub async fn send_input(&mut self, input: &GameInput) -> Result<(), UdpProtoError> {
@@ -366,12 +375,13 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
 
                     if current.bits != last.bits {
                         assert!(
-                            (crate::game_input::GAMEINPUT_MAX_BYTES
-                                * crate::game_input::GAMEINPUT_MAX_PLAYERS
-                                * 8)
+                            (GAMEINPUT_MAX_BYTES
+                                * GAMEINPUT_MAX_PLAYERS
+                                * bitvector::BITVECTOR_NIBBLE_SIZE)
                                 < (1 << bitvector::BITVECTOR_NIBBLE_SIZE)
                         );
-                        for i in 0..current.size * 8 {
+
+                        for i in 0..current.size * bitvector::BITVECTOR_NIBBLE_SIZE {
                             assert!(i < (1 << bitvector::BITVECTOR_NIBBLE_SIZE));
                             if current.value(i) != last.value(i) {
                                 bitvector::set_bit(&mut input.bits, &mut offset);
@@ -395,7 +405,9 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
             input.num_bits = offset as u16;
 
             input.disconnect_requested = self.state == State::Disconnected;
-            input.peer_connect_status = self.local_connect_status;
+            for i in 0..self.local_connect_status.len() {
+                input.peer_connect_status[i] = *self.local_connect_status[i].lock().await;
+            }
 
             assert!(offset < MAX_COMPRESSED_BITS);
         }
@@ -430,8 +442,12 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
         }
     }
 
-    pub fn get_event(&mut self) -> Option<Event> {
-        self.event_queue.pop_front()
+    pub fn get_event(&mut self, event: &mut Event) -> bool {
+        if let Some(e) = self.event_queue.pop_front() {
+            *event = e;
+            return true;
+        }
+        false
     }
 
     pub async fn on_loop_pool(&mut self, cookie: i32) -> Result<bool, UdpProtoError> {
@@ -585,7 +601,7 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
                 roundtrips_remaining: _,
                 random,
             }) => {
-                *random = rand::thread_rng().gen::<u32>() & 0xFFFF;
+                *random = self.rng.gen::<u32>() & 0xFFFF;
                 let mut msg = UdpMsg::new(MsgType::SyncRequest);
                 match &mut msg.message {
                     MsgEnum::SyncRequest(sync_request) => {
@@ -729,7 +745,7 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
         self.udp.as_ref().ok_or(UdpProtoError::UdpUninit)?;
         self.state = State::Syncing(Syncing {
             roundtrips_remaining: NUM_SYNC_PACKETS,
-            random: rand::thread_rng().gen(),
+            random: self.rng.gen(),
         });
         self.send_sync_request().await
     }
@@ -910,6 +926,7 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
                             let on = bitvector::read_bit(&mut bits, &mut (offset as usize));
                             let button = bitvector::read_nibblet(&mut bits, &mut (offset as usize));
                             if use_inputs {
+                                // TODO: Fix the 1d -> 2d indexing going on here.
                                 if on > 0 {
                                     self.last_received_input.set(button as usize);
                                 } else {
@@ -1083,13 +1100,13 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
         }
     }
 
-    pub fn set_local_frame_number(&mut self, local_frame: Frame) {
+    pub fn set_local_frame_number(&mut self, local_frame: FrameNum) {
         /*
          * Estimate which frame the other guy is one by looking at the
          * last frame they gave us plus some delta for the one-way packet
          * trip time.
          */
-        let remoteFrame = self.last_received_input.frame.unwrap_or(0)
+        let remote_frame = self.last_received_input.frame.unwrap_or(0)
             + (self.round_trip_time as FrameNum * 60 / 1000);
 
         /*
@@ -1098,7 +1115,7 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
          * it means they'll have to predict more often and our moves will
          * pop more frequenetly.
          */
-        self.local_frame_advantage = (remoteFrame as i64 - local_frame.unwrap_or(0) as i64) as i32;
+        self.local_frame_advantage = (remote_frame as i64 - local_frame as i64) as i32;
     }
 
     pub fn recommend_frame_delay(&mut self) -> u32 {
@@ -1116,7 +1133,6 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
 
     pub async fn pump_send_queue(&mut self) -> Result<(), UdpProtoError> {
         while !self.send_queue.is_empty() {
-            let mut rng = rand::thread_rng();
             let entry = self.send_queue.front().unwrap();
 
             if self.send_latency > 0 {
@@ -1124,9 +1140,9 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
                 // value, but this will do for now.
                 // 2020-7: Below is the gaussian version.
                 // TODO: Test other standard deviations.
-                let jitter = Normal::new(self.send_latency as f64, 1.)
+                let jitter = Normal::new(self.send_latency as f64, 3.)
                     .unwrap()
-                    .sample(&mut rng);
+                    .sample(&mut StdRng::seed_from_u64(self.rng.gen()));
 
                 if std::time::SystemTime::now()
                     < self
@@ -1142,9 +1158,9 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
 
             if self.oop_percent > 0
                 && self.oo_packet.msg.is_none()
-                && ((rng.gen_range(0, 100)) < self.oop_percent)
+                && ((self.rng.gen_range(0, 100)) < self.oop_percent)
             {
-                let delay = rng.gen_range(0, self.send_latency * 10 + 1000);
+                let delay = self.rng.gen_range(0, self.send_latency * 10 + 1000);
                 info!(
                     "creating rogue oop (seq: {} delay: {})\n",
                     entry.msg.header.sequence_number, delay
@@ -1162,7 +1178,8 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
                 self.udp
                     .as_mut()
                     .ok_or(UdpProtoError::UdpUninit)?
-                    .get_mut()
+                    .lock()
+                    .await
                     .send_to(entry.msg.clone(), &[entry.dest_addr])
                     .await?;
             }
@@ -1178,7 +1195,8 @@ impl<Callback: UdpCallback> UdpProtocol<Callback> {
             self.udp
                 .as_mut()
                 .ok_or(UdpProtoError::UdpUninit)?
-                .get_mut()
+                .lock()
+                .await
                 .send_to(
                     self.oo_packet
                         .msg

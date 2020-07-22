@@ -1,5 +1,9 @@
-use crate::game_input::Frame;
-use crate::player::{Player, PlayerHandle};
+use crate::{
+    backends::p2p::Peer2PeerError,
+    game_input::{Frame, FrameNum, InputBuffer},
+    network::udp_proto::UdpProtoError,
+    player::{Player, PlayerHandle},
+};
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use log::info;
@@ -39,35 +43,46 @@ pub enum GGPOError {
     TooManySpectators,
     #[error("GGPO invalid request.")]
     InvalidRequest,
+    #[error("P2P Backend error.")]
+    P2P {
+        #[from]
+        source: Peer2PeerError,
+    },
+    #[error("UDP Protocol error.")]
+    UdpProto {
+        #[from]
+        source: UdpProtoError,
+    },
 }
 pub struct ConnectedToPeer {
-    player: PlayerHandle,
+    pub player: PlayerHandle,
 }
 
 pub struct SynchronizingWithPeer {
-    count: i32,
-    total: i32,
+    pub count: u32,
+    pub total: u32,
+    pub player: PlayerHandle,
 }
 
 pub struct SynchronizedWithPeer {
-    player: PlayerHandle,
+    pub player: PlayerHandle,
 }
 
 pub struct DisconnectedFromPeer {
-    player: PlayerHandle,
+    pub player: PlayerHandle,
 }
 
-pub struct EventTimeSync {
-    frames_ahead: i32,
+pub struct TimeSyncEvent {
+    pub frames_ahead: FrameNum,
 }
 
 pub struct ConnectionInterrupted {
-    player: PlayerHandle,
-    disconnect_timeout: i32,
+    pub player: PlayerHandle,
+    pub disconnect_timeout: u128,
 }
 
 pub struct ConnectionResumed {
-    player: PlayerHandle,
+    pub player: PlayerHandle,
 }
 
 pub enum Event {
@@ -76,55 +91,64 @@ pub enum Event {
     SynchronizedWithPeer(SynchronizedWithPeer),
     Running,
     DisconnectedFromPeer(DisconnectedFromPeer),
-    TimeSync(EventTimeSync),
+    TimeSync(TimeSyncEvent),
     ConnectionInterrupted(ConnectionInterrupted),
     ConnectionResumed(ConnectionResumed),
 }
 
-#[async_trait(?Send)]
+#[async_trait()]
 pub trait Session {
-    fn do_poll(_timeout: usize) -> Result<(), GGPOError> {
-        Ok(())
+    async fn do_poll(&mut self, timeout: usize) -> Result<(), GGPOError> {
+        unimplemented!()
     }
 
-    fn add_player(player: Player, handle: PlayerHandle) -> Result<(), GGPOError> {
-        Ok(())
-    }
-
-    fn add_local_input(player: PlayerHandle, values: String, size: usize) -> Result<(), GGPOError> {
-        Ok(())
-    }
-
-    fn synchronize_input(
-        values: String,
-        size: usize,
-        disconnect_flags: i32,
+    async fn add_player(
+        &mut self,
+        player: Player,
+        handle: &mut PlayerHandle,
     ) -> Result<(), GGPOError> {
-        Ok(())
+        unimplemented!()
     }
 
-    fn increment_frame() -> Result<(), GGPOError> {
-        Ok(())
+    async fn add_local_input(
+        &mut self,
+        player: PlayerHandle,
+        values: &InputBuffer,
+        size: usize,
+    ) -> Result<(), GGPOError> {
+        unimplemented!()
     }
 
-    fn chat(_text: String) -> Result<(), GGPOError> {
-        Ok(())
+    async fn synchronize_input(
+        &mut self,
+        values: &mut Vec<InputBuffer>,
+        disconnect_flags: Option<&mut i32>,
+    ) -> Result<(), GGPOError> {
+        unimplemented!()
     }
 
-    fn disconnect_player(_handle: PlayerHandle) -> Result<(), GGPOError> {
-        Ok(())
+    async fn increment_frame(&mut self) -> Result<(), GGPOError> {
+        unimplemented!()
     }
 
-    fn get_network_stats(_stats: NetworkStats, _handle: PlayerHandle) -> Result<(), GGPOError> {
-        Ok(())
+    fn chat(&mut self, _text: String) -> Result<(), GGPOError> {
+        unimplemented!()
+    }
+
+    async fn disconnect_player(&self, handle: PlayerHandle) -> Result<(), GGPOError> {
+        unimplemented!()
+    }
+
+    async fn get_network_stats(&self, handle: PlayerHandle) -> Result<NetworkStats, GGPOError> {
+        unimplemented!()
     }
 
     //TODO: stub this with the log crate
     fn logv(fmt: &str) -> Result<(), GGPOError> {
-        Ok(())
+        unimplemented!()
     }
 
-    fn set_frame_delay(&mut self, player: PlayerHandle, delay: i32) -> Result<(), GGPOError> {
+    async fn set_frame_delay(&mut self, player: PlayerHandle, delay: i32) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 

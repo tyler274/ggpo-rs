@@ -1,20 +1,24 @@
 use log::info;
 use std::fmt::Display;
 
+use crate::bitvector::BITVECTOR_NIBBLE_SIZE;
+
 // GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS * 8 must be less than
 // 2^BITVECTOR_NIBBLE_SIZE (see bitvector.h)
 
 pub const GAMEINPUT_MAX_BYTES: usize = 9;
 pub const GAMEINPUT_MAX_PLAYERS: usize = 2;
 pub const INPUT_BUFFER_SIZE: usize = GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS;
-pub type InputBuffer = [u8; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
+pub type Input = [u8; GAMEINPUT_MAX_BYTES];
+pub type InputBuffer = [Input; GAMEINPUT_MAX_PLAYERS];
+// pub type InputBuffer = [u8; INPUT_BUFFER_SIZE];
 pub type FrameNum = u32;
 pub type Frame = Option<FrameNum>;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct GameInput {
     pub frame: Frame,
-    pub size: usize,
+    pub size: usize, // Number of u8 in the InputBuffer array.
     pub bits: InputBuffer,
 }
 
@@ -23,7 +27,8 @@ impl GameInput {
         GameInput {
             frame: None,
             size: 0,
-            bits: [b'0'; INPUT_BUFFER_SIZE],
+            // bits: [b'0'; GAMEINPUT_MAX_BYTES],
+            bits: [[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS],
         }
     }
     pub fn init(frame: Frame, bits: Option<&InputBuffer>, size: usize) -> GameInput {
@@ -37,21 +42,26 @@ impl GameInput {
             None => GameInput {
                 frame,
                 size,
-                bits: [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS],
+                bits: [[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS],
             },
         }
     }
+    // TODO: Document what the actual hell these do.
     pub const fn value(&self, i: usize) -> bool {
-        (self.bits[i / 8] & (1 << (i % 8))) != 0
+        (self.bits[i / GAMEINPUT_MAX_BYTES][i % GAMEINPUT_MAX_PLAYERS]
+            & (1 << (i % BITVECTOR_NIBBLE_SIZE)))
+            != 0
     }
     pub fn set(&mut self, i: usize) {
-        self.bits[i / 8] |= 1 << (i % 8);
+        self.bits[i / GAMEINPUT_MAX_BYTES][i % GAMEINPUT_MAX_PLAYERS] |=
+            1 << (i % BITVECTOR_NIBBLE_SIZE);
     }
     pub fn clear(&mut self, i: usize) {
-        self.bits[i / 8] &= !(1 << (i % 8));
+        self.bits[i / GAMEINPUT_MAX_BYTES][i % GAMEINPUT_MAX_PLAYERS] &=
+            !(1 << (i % BITVECTOR_NIBBLE_SIZE));
     }
     pub fn erase(&mut self) {
-        self.bits = [b'0'; GAMEINPUT_MAX_BYTES * GAMEINPUT_MAX_PLAYERS];
+        self.bits = [[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS];
     }
     pub fn describe(&self, show_frame: bool) -> String {
         let mut buf: String = String::from("");
@@ -63,11 +73,12 @@ impl GameInput {
             }
         }
 
-        for i in 0..(self.size as usize) * 8 {
+        for i in 0..self.size {
             if self.value(i) {
                 buf.push_str(&format!("{:2}", i));
             }
         }
+
         buf.push(')');
         buf
     }

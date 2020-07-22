@@ -19,10 +19,12 @@ zstd = "0.5"
 bytes = { version = "0.5", features = ["serde"] }
 async-net = "0.1"
 smol = "0.1"
+blocking = "0.4"
 thiserror = "1.0"
 rand = "0.7"
 rand_distr = "0.2"
 async-mutex = "1.1"
+# A stop-gap until this hard problem is solved. 
 async-trait = "0.1"
 async-trait-ext = "0.2"
 

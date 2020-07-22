@@ -6,6 +6,7 @@ use async_mutex::Mutex;
 use async_net::UdpSocket;
 use async_trait::async_trait;
 use async_trait_ext::async_trait_ext;
+use blocking::unblock;
 use bytes::{Bytes, BytesMut};
 use log::{error, info};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -16,7 +17,8 @@ use thiserror::Error;
 
 pub const ZSTD_LEVEL: i32 = 7;
 
-#[async_trait(?Send)]
+// #[async_trait(?Send)]
+#[async_trait()]
 pub trait UdpCallback {
     async fn on_msg(&mut self, from: &SocketAddr, msg: &UdpMsg, len: usize) -> Result<(), String>;
 }
@@ -62,6 +64,20 @@ async fn create_socket(socket_address: SocketAddr, retries: usize) -> std::io::R
     ))
 }
 
+// #[derive()]
+pub struct ZstdHolder {
+    pub compressor: zstd::block::Compressor,
+    pub decompressor: zstd::block::Decompressor,
+}
+impl ZstdHolder {
+    pub fn new() -> Self {
+        Self {
+            compressor: zstd::block::Compressor::new(),
+            decompressor: zstd::block::Decompressor::new(),
+        }
+    }
+}
+
 pub struct Udp<Callbacks>
 where
     Callbacks: UdpCallback,
@@ -74,8 +90,9 @@ where
     // poll: Option<&'poll mut Poll>,
 
     // zstd Encoder and Decoder
-    compressor: zstd::block::Compressor,
-    decompressor: zstd::block::Decompressor,
+    zstd: Arc<Mutex<ZstdHolder>>,
+    // compressor: zstd::block::Compressor,
+    // decompressor: zstd::block::Decompressor,
 }
 
 impl<Callbacks> Default for Udp<Callbacks>
@@ -95,8 +112,7 @@ where
         Udp {
             socket: None,
             callbacks: None,
-            compressor: zstd::block::Compressor::new(),
-            decompressor: zstd::block::Decompressor::new(),
+            zstd: Arc::new(Mutex::new(ZstdHolder::new())),
         }
     }
     pub async fn init(
@@ -122,9 +138,18 @@ where
         msg: Arc<UdpMsg>,
         destination: &[SocketAddr],
     ) -> Result<(), UdpError> {
-        let compressed = self
-            .compressor
-            .compress(&bincode::serialize(msg.deref())?, ZSTD_LEVEL)?;
+        // TODO: This probably blocks. unblocking it requires solving lifetimes around the compressor.
+        // Move the compressor and decompressor to their own struct. Hold an Arc<Mutex<>> to it in Udp
+        let zstd_mutex = self.zstd.clone();
+        let mut zstd = zstd_mutex.lock().await;
+        let serialized = unblock!(bincode::serialize(msg.deref()))?;
+        let compressed = zstd.compressor.compress(&serialized, ZSTD_LEVEL)?;
+        // let compressed = self
+        //     .zstd
+        //     .lock()
+        //     .await
+        //     .compressor
+        //     .compress(&bincode::serialize(msg.deref())?, ZSTD_LEVEL)?;
         let resp = self
             .socket
             .as_ref()
@@ -155,12 +180,13 @@ where
             .ok_or(UdpError::SocketUninit)?
             .recv_from(recv_buf.as_mut())
             .await?;
+        let zstd_mutex = self.zstd.clone();
+        let mut zstd = zstd_mutex.lock().await;
+        let decompressed = zstd
+            .decompressor
+            .decompress(recv_buf.as_mut(), std::mem::size_of::<UdpMsg>())?;
 
-        let msg: UdpMsg = bincode::deserialize(
-            &self
-                .decompressor
-                .decompress(recv_buf.as_mut(), std::mem::size_of::<UdpMsg>())?,
-        )?;
+        let msg: UdpMsg = unblock!(bincode::deserialize(&decompressed))?;
         Ok((msg, len, recv_address))
     }
 
