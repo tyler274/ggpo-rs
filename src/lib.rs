@@ -5,6 +5,7 @@
 // #![feature(const_in_array_repeat_expressions)]
 #![feature(move_ref_pattern)]
 #![warn(clippy::all)]
+#![forbid(unsafe_code)]
 
 pub mod backends {
     pub mod p2p;

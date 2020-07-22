@@ -63,62 +63,28 @@ async fn create_socket(socket_address: SocketAddr, retries: usize) -> std::io::R
     ))
 }
 
-// #[derive()]
-pub struct ZstdHolder {
-    pub compressor: zstd::block::Compressor,
-    pub decompressor: zstd::block::Decompressor,
-}
-impl ZstdHolder {
-    pub fn new() -> Self {
-        Self {
-            compressor: zstd::block::Compressor::new(),
-            decompressor: zstd::block::Decompressor::new(),
-        }
-    }
-}
-
-pub struct Udp<Callbacks>
-where
-    Callbacks: UdpCallback,
-{
+pub struct Udp<T: UdpCallback> {
     // Network transmission information
     socket: Option<UdpSocket>,
 
     // state management
-    callbacks: Option<Arc<Mutex<Callbacks>>>,
-    // poll: Option<&'poll mut Poll>,
-
-    // zstd Encoder and Decoder
-    zstd: Arc<Mutex<ZstdHolder>>,
-    // compressor: zstd::block::Compressor,
-    // decompressor: zstd::block::Decompressor,
+    callbacks: Option<Arc<Mutex<T>>>,
 }
 
-impl<Callbacks> Default for Udp<Callbacks>
-where
-    Callbacks: UdpCallback,
-{
+impl<T: UdpCallback> Default for Udp<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Callbacks> Udp<Callbacks>
-where
-    Callbacks: UdpCallback,
-{
+impl<T: UdpCallback> Udp<T> {
     pub fn new() -> Self {
         Udp {
             socket: None,
             callbacks: None,
-            zstd: Arc::new(Mutex::new(ZstdHolder::new())),
         }
     }
-    pub async fn init(
-        &mut self,
-        port: u16,
-        callbacks: Arc<Mutex<Callbacks>>,
-    ) -> Result<(), UdpError> {
+    pub async fn init(&mut self, port: u16, callbacks: Arc<Mutex<T>>) -> Result<(), UdpError> {
         self.callbacks = Some(callbacks);
         info!("binding udp socket to port {}.\n", port);
         self.socket = Some(
@@ -137,18 +103,13 @@ where
         msg: Arc<UdpMsg>,
         destination: &[SocketAddr],
     ) -> Result<(), UdpError> {
-        // TODO: This probably blocks. unblocking it requires solving lifetimes around the compressor.
-        // Move the compressor and decompressor to their own struct. Hold an Arc<Mutex<>> to it in Udp
-        let zstd_mutex = self.zstd.clone();
-        let mut zstd = zstd_mutex.lock().await;
-        let serialized = unblock!(bincode::serialize(msg.deref()))?;
-        let compressed = zstd.compressor.compress(&serialized, ZSTD_LEVEL)?;
-        // let compressed = self
-        //     .zstd
-        //     .lock()
-        //     .await
-        //     .compressor
-        //     .compress(&bincode::serialize(msg.deref())?, ZSTD_LEVEL)?;
+        /*
+        TODO: Can we store the serialized result into a BytesMut and compress in place to avoid another allocation?
+        TODO: Will doing the above actually improve performance?
+         */
+        let serialized = unblock!(bincode::serialize(msg.clone().deref()))?;
+        let compressed = unblock!(zstd::block::compress(&serialized, ZSTD_LEVEL))?;
+
         let resp = self
             .socket
             .as_ref()
@@ -179,11 +140,11 @@ where
             .ok_or(UdpError::SocketUninit)?
             .recv_from(recv_buf.as_mut())
             .await?;
-        let zstd_mutex = self.zstd.clone();
-        let mut zstd = zstd_mutex.lock().await;
-        let decompressed = zstd
-            .decompressor
-            .decompress(recv_buf.as_mut(), std::mem::size_of::<UdpMsg>())?;
+
+        let decompressed = unblock!(zstd::block::decompress(
+            recv_buf.as_mut(),
+            std::mem::size_of::<UdpMsg>()
+        ))?;
 
         let msg: UdpMsg = unblock!(bincode::deserialize(&decompressed))?;
         Ok((msg, len, recv_address))
