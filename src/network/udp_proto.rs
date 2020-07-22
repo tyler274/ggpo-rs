@@ -11,7 +11,7 @@ use crate::{
     time_sync::TimeSync,
 };
 use async_mutex::Mutex;
-use log::{error, info, trace, warn};
+use log::{error, info, trace};
 use rand::prelude::*;
 use rand_distr::{Distribution, Normal};
 use std::sync::Arc;
@@ -312,13 +312,13 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
     }
 
     pub async fn send_input(&mut self, input: &GameInput) -> Result<(), UdpProtoError> {
-        let udp = self.udp.as_ref().ok_or(UdpProtoError::UdpUninit)?;
+        // let udp = self.udp.as_ref().ok_or(UdpProtoError::UdpUninit)?;
 
         match self.state {
             State::Running(Running {
-                last_quality_report_time,
-                last_network_stats_interval,
-                last_input_packet_recv_time,
+                last_quality_report_time: _,
+                last_network_stats_interval: _,
+                last_input_packet_recv_time: _,
             }) => {
                 /*
                  * Check to see if this is a good time to adjust for the rift...
@@ -337,8 +337,6 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                  * (better, but still ug).  For the meantime, make this queue really big to decrease
                  * the odds of this happening...
                  */
-                // Implemented the "resize the queue" solution by using a growable VedDeque.
-                // TODO: Can I use VecDeques for all the Ring Buffers? Need to profile.
                 self.pending_output.push_back(input.clone());
             }
             _ => {}
@@ -450,20 +448,18 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         false
     }
 
-    pub async fn on_loop_pool(&mut self, cookie: i32) -> Result<bool, UdpProtoError> {
+    pub async fn on_loop_pool(&mut self, _cookie: i32) -> Result<bool, UdpProtoError> {
         if self.udp.is_none() {
             return Ok(true);
         }
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-        let mut next_interval: u128 = 0;
-
         self.pump_send_queue().await?;
 
         match self.state {
             State::Syncing(Syncing {
                 roundtrips_remaining,
-                random,
+                random: _,
             }) => {
                 let next_interval = if roundtrips_remaining == NUM_SYNC_PACKETS {
                     SYNC_FIRST_RETRY_INTERVAL
@@ -531,7 +527,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                     last_network_stats_interval = now;
                     self.state = State::Running(Running {
                         last_quality_report_time,
-                        last_network_stats_interval: now,
+                        last_network_stats_interval: last_network_stats_interval,
                         last_input_packet_recv_time,
                     })
                 }
@@ -635,7 +631,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         self.pump_send_queue().await
     }
 
-    pub fn handles_msg(&mut self, from: &SocketAddr, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
+    pub fn handles_msg(&mut self, from: &SocketAddr, _msg: &UdpMsg) -> Result<bool, UdpProtoError> {
         if self.udp.is_none() {
             return Err(UdpProtoError::UdpUninit);
         }
@@ -694,9 +690,9 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
             self.last_recv_time = SystemTime::now();
             match self.state {
                 State::Running(Running {
-                    last_quality_report_time,
-                    last_network_stats_interval,
-                    last_input_packet_recv_time,
+                    last_quality_report_time: _,
+                    last_network_stats_interval: _,
+                    last_input_packet_recv_time: _,
                 }) => {
                     if self.disconnect_notify_sent {
                         self.queue_event(Event::NetworkResumed);
@@ -781,7 +777,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         };
     }
 
-    pub fn on_invalid(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
+    pub fn on_invalid(&mut self, _msg: &UdpMsg) -> Result<bool, UdpProtoError> {
         error!("Invalid msg in UdpProtocol.\n");
         // panic!();
         // TODO :Is panicing here a good idea? Is it possible to recover?

@@ -1,17 +1,16 @@
 use crate::network::udp_msg::UdpMsg;
 
-// use async_compression::futures::{bufread::ZstdDecoder, write::ZstdEncoder};
-// use async_dup::Arc;
 use async_mutex::Mutex;
 use async_net::UdpSocket;
 use async_trait::async_trait;
-use async_trait_ext::async_trait_ext;
 use blocking::unblock;
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use log::{error, info};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::ops::Deref;
-use std::sync::{Arc, Weak};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    ops::Deref,
+    sync::Arc,
+};
 
 use thiserror::Error;
 

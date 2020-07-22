@@ -1,7 +1,6 @@
 use crate::{
     game_input::{
         Frame, FrameNum, GameInput, InputBuffer, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS,
-        INPUT_BUFFER_SIZE,
     },
     ggpo::{GGPOSessionCallbacks, GGPO_MAX_PREDICTION_FRAMES},
     input_queue::InputQueue,
@@ -10,7 +9,7 @@ use crate::{
 
 use async_mutex::Mutex;
 use bytes::Bytes;
-use log::{error, info, warn};
+use log::{error, info};
 use std::{collections::VecDeque, sync::Arc};
 use thiserror::Error;
 
@@ -53,6 +52,7 @@ impl<T: GGPOSessionCallbacks> Config<T> {
         self.callbacks = Some(callbacks.clone());
         self.num_players = num_players;
         self.input_size = input_size;
+        self.num_prediction_frames = num_prediction_frames;
     }
 }
 
@@ -193,7 +193,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
     }
 
-    pub fn add_local_input(&mut self, queue: u32, input: &mut GameInput) -> bool {
+    pub async fn add_local_input(&mut self, queue: u32, input: &mut GameInput) -> bool {
         let frames_behind: FrameNum;
         match self.last_confirmed_frame {
             Some(last_confirmed_frame) => frames_behind = self.frame_count - last_confirmed_frame,
@@ -208,7 +208,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
 
         if self.frame_count == 0 {
-            self.save_current_frame();
+            self.save_current_frame().await;
         }
 
         info!(
@@ -344,9 +344,9 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.rolling_back
     }
 
-    pub fn increment_frame(&mut self) {
+    pub async fn increment_frame(&mut self) {
         self.frame_count += 1;
-        self.save_current_frame();
+        self.save_current_frame().await;
     }
 
     pub async fn get_confirmed_inputs(
@@ -488,7 +488,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         /*
          * Flush our input queue and load the last frame.
          */
-        self.load_frame(Some(seek_to));
+        self.load_frame(Some(seek_to)).await;
         assert!(self.frame_count == seek_to);
 
         /*

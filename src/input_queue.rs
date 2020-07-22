@@ -1,6 +1,6 @@
 use crate::game_input::{Frame, FrameNum, GameInput, GAMEINPUT_MAX_BYTES, GAMEINPUT_MAX_PLAYERS};
 use log::info;
-use std::{cmp, fmt::Debug};
+use std::cmp;
 
 const INPUT_QUEUE_LENGTH: usize = 128;
 const DEFAULT_INPUT_SIZE: usize = 4;

@@ -1,5 +1,5 @@
 use crate::{
-    game_input::{Frame, FrameNum, GameInput, InputBuffer},
+    game_input::{FrameNum, GameInput, InputBuffer},
     ggpo::{
         self, GGPOError, GGPOSessionCallbacks, NetworkStats, Session, GGPO_MAX_PLAYERS,
         GGPO_MAX_SPECTATORS,
@@ -13,12 +13,9 @@ use crate::{
     sync::{self, GGPOSync, SyncError},
 };
 use async_mutex::Mutex;
-use async_net::UdpSocket;
 use async_trait::async_trait;
-use blocking::{block_on, unblock};
-use log::{error, info, warn};
-use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use log::{error, info};
+use std::{net::SocketAddr, sync::Arc};
 use thiserror::Error;
 
 const RECOMMENDATION_INTERVAL: u32 = 240;
@@ -57,6 +54,7 @@ pub struct Peer2PeerBackend<T>
 where
     T: GGPOSessionCallbacks + Send + Sync + Clone,
 {
+    game_name: String,
     callbacks: Arc<Mutex<T>>,
     sync: Arc<Mutex<GGPOSync<T>>>,
     udp: Arc<Mutex<Udp<Self>>>,
@@ -81,7 +79,7 @@ impl<GGPOCallbacks> UdpCallback for Peer2PeerBackend<GGPOCallbacks>
 where
     GGPOCallbacks: GGPOSessionCallbacks + Send + Sync,
 {
-    async fn on_msg(&mut self, from: &SocketAddr, msg: &UdpMsg, len: usize) -> Result<(), String> {
+    async fn on_msg(&mut self, from: &SocketAddr, msg: &UdpMsg, _len: usize) -> Result<(), String> {
         for i in 0..self.num_players {
             let mut endpoint = self.endpoints[i].lock().await;
             if endpoint.handles_msg(from, msg).map_err(|e| e.to_string())? {
@@ -117,11 +115,11 @@ impl<T> Session for Peer2PeerBackend<T>
 where
     T: GGPOSessionCallbacks + Send + Sync,
 {
-    async fn do_poll(&mut self, timeout: usize) -> Result<(), GGPOError> {
+    async fn do_poll(&mut self, _timeout: usize) -> Result<(), GGPOError> {
         if self.sync.lock().await.in_rollback() {
             self.poll_udp_protocol_events().await?;
             if !*self.synchronizing.lock().await {
-                self.sync.lock().await.check_simulation().await;
+                self.sync.lock().await.check_simulation().await?;
 
                 // notify all of our endpoints of their local frame number for their
                 // next connection quality report
@@ -158,7 +156,8 @@ where
                         self.sync
                             .lock()
                             .await
-                            .get_confirmed_inputs(&mut input.bits, Some(self.next_spectator_frame));
+                            .get_confirmed_inputs(&mut input.bits, Some(self.next_spectator_frame))
+                            .await?;
                         for i in 0..self.num_spectators {
                             self.spectators[i].lock().await.send_input(&input).await?;
                         }
@@ -243,7 +242,13 @@ where
         let mut input = GameInput::init(None, Some(&values), size);
 
         // Feed the input for the current frame into the synchronzation layer.
-        if !self.sync.lock().await.add_local_input(queue, &mut input) {
+        if !self
+            .sync
+            .lock()
+            .await
+            .add_local_input(queue, &mut input)
+            .await
+        {
             return Err(GGPOError::PredictionThreshold);
         }
 
@@ -293,7 +298,7 @@ where
         {
             let mut sync = self.sync.lock().await;
             info!("End of frame ({:?})...\n", sync.get_frame_count());
-            sync.increment_frame();
+            sync.increment_frame().await;
         }
         self.do_poll(0).await?;
         self.poll_sync_events().await?;
@@ -362,7 +367,7 @@ where
             .await
             .get_network_stats())
     }
-    fn logv(fmt: &str) -> Result<(), GGPOError> {
+    fn logv(_fmt: &str) -> Result<(), GGPOError> {
         Ok(())
     }
     async fn set_frame_delay(&mut self, player: PlayerHandle, delay: i32) -> Result<(), GGPOError> {
@@ -402,18 +407,18 @@ where
 impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
     pub async fn new(
         callbacks: Arc<Mutex<T>>,
-        game_name: &str,
+        game_name: String,
         local_port: u16,
         num_players: usize,
         input_size: usize,
-    ) -> Result<Self, Peer2PeerError> {
+    ) -> Result<Arc<Mutex<Self>>, Peer2PeerError> {
         let mut connect_status: [Arc<Mutex<ConnectStatus>>; UDP_MSG_MAX_PLAYERS] =
             Default::default();
         for i in 0..UDP_MSG_MAX_PLAYERS {
             connect_status[i] = Arc::new(Mutex::new(ConnectStatus::new()));
         }
 
-        let udp = Udp::<Self>::new();
+        let udp = Udp::new();
 
         /*
          * Initialize the synchronziation layer
@@ -440,8 +445,10 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
             endpoints[i] = Arc::new(Mutex::new(UdpProtocol::new()));
         }
 
-        Ok(Self {
+        // this feels really neat, but I have suspicions.
+        let p2p = Arc::new(Mutex::new(Self {
             num_players,
+            game_name,
             input_size,
             num_spectators: 0,
             next_spectator_frame: 0,
@@ -455,7 +462,14 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
             local_connect_status: connect_status,
             spectators,
             endpoints,
-        })
+        }));
+        p2p.clone()
+            .lock()
+            .await
+            .init(p2p.clone(), local_port)
+            .await?;
+
+        Ok(p2p.clone())
     }
 
     pub async fn init(
@@ -473,7 +487,8 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
     // Take a player handle and return that player's input queue....I think.
     fn player_handle_to_queue(&self, player: PlayerHandle) -> Result<u32, GGPOError> {
         let offset = player - 1;
-        if offset < 0 || offset >= self.num_players as u32 {
+        // if offset < 0 || offset >= self.num_players as u32 {
+        if offset >= self.num_players as u32 {
             return Err(GGPOError::InvalidPlayerHandle);
         }
         Ok(offset)
@@ -550,7 +565,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
         Ok(())
     }
 
-    async fn poll_2_players(&mut self, current_frame: FrameNum) -> Result<u32, Peer2PeerError> {
+    async fn poll_2_players(&mut self, _current_frame: FrameNum) -> Result<u32, Peer2PeerError> {
         //discard confirmed frames as appropriate
         let mut total_min_confirmed = std::u32::MAX;
         for i in 0..self.num_players {
@@ -590,7 +605,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
         Ok(total_min_confirmed)
     }
 
-    async fn poll_n_players(&mut self, current_frame: FrameNum) -> Result<u32, Peer2PeerError> {
+    async fn poll_n_players(&mut self, _current_frame: FrameNum) -> Result<u32, Peer2PeerError> {
         // discard confirmed frames as appropriate
         let mut total_min_confirmed = std::u32::MAX;
         for queue in 0..self.num_players {
@@ -706,7 +721,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
     }
 
     // Is this supposed to do anything?
-    async fn on_sync_event(&mut self, event: &sync::Event) {}
+    async fn on_sync_event(&mut self, _event: &sync::Event) {}
 
     async fn on_udp_protocol_event(&self, event: &udp_proto::Event, handle: PlayerHandle) {
         let info: ggpo::Event;
@@ -798,7 +813,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
         event: &udp_proto::Event,
         queue: u32,
     ) -> Result<(), Peer2PeerError> {
-        let handle = Self::queue_to_player_handle(queue);
+        let handle = Self::queue_to_spectator_handle(queue);
         self.on_udp_protocol_event(event, handle).await;
 
         let info: ggpo::Event;

@@ -7,7 +7,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
-use log::info;
+// use log::info;
 use thiserror::Error;
 
 pub const GGPO_MAX_PLAYERS: usize = 4;
@@ -104,31 +104,31 @@ pub enum Event {
 
 #[async_trait()]
 pub trait Session {
-    async fn do_poll(&mut self, timeout: usize) -> Result<(), GGPOError> {
+    async fn do_poll(&mut self, _timeout: usize) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
     async fn add_player(
         &mut self,
-        player: Player,
-        handle: &mut PlayerHandle,
+        _player: Player,
+        _handle: &mut PlayerHandle,
     ) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
     async fn add_local_input(
         &mut self,
-        player: PlayerHandle,
-        values: &InputBuffer,
-        size: usize,
+        _player: PlayerHandle,
+        _values: &InputBuffer,
+        _size: usize,
     ) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
     async fn synchronize_input(
         &mut self,
-        values: &mut Vec<InputBuffer>,
-        disconnect_flags: Option<&mut i32>,
+        _values: &mut Vec<InputBuffer>,
+        _disconnect_flags: Option<&mut i32>,
     ) -> Result<(), GGPOError> {
         unimplemented!()
     }
@@ -141,28 +141,32 @@ pub trait Session {
         unimplemented!()
     }
 
-    async fn disconnect_player(&self, handle: PlayerHandle) -> Result<(), GGPOError> {
+    async fn disconnect_player(&self, _handle: PlayerHandle) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn get_network_stats(&self, handle: PlayerHandle) -> Result<NetworkStats, GGPOError> {
+    async fn get_network_stats(&self, _handle: PlayerHandle) -> Result<NetworkStats, GGPOError> {
         unimplemented!()
     }
 
     //TODO: stub this with the log crate
-    fn logv(fmt: &str) -> Result<(), GGPOError> {
+    fn logv(_fmt: &str) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn set_frame_delay(&mut self, player: PlayerHandle, delay: i32) -> Result<(), GGPOError> {
+    async fn set_frame_delay(
+        &mut self,
+        _player: PlayerHandle,
+        _delay: i32,
+    ) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 
-    async fn set_disconnect_timeout(&mut self, timeout: u128) -> Result<(), GGPOError> {
+    async fn set_disconnect_timeout(&mut self, _timeout: u128) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 
-    async fn set_disconnect_notify_start(&mut self, timeout: u128) -> Result<(), GGPOError> {
+    async fn set_disconnect_notify_start(&mut self, _timeout: u128) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 }
