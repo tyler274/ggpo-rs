@@ -10,7 +10,7 @@ use crate::{
         udp_proto::{self, UdpProtoError, UdpProtocol},
     },
     player::{Player, PlayerHandle},
-    sync::{self, GGPOSync},
+    sync::{self, GGPOSync, SyncError},
 };
 use async_mutex::Mutex;
 use async_net::UdpSocket;
@@ -22,8 +22,8 @@ use std::sync::Arc;
 use thiserror::Error;
 
 const RECOMMENDATION_INTERVAL: u32 = 240;
-const DEFAULT_DISCONNECT_TIMEOUT: i32 = 5000;
-const DEFAULT_DISCONNECT_NOTIFY_START: i32 = 750;
+const DEFAULT_DISCONNECT_TIMEOUT: u128 = 5000;
+const DEFAULT_DISCONNECT_NOTIFY_START: u128 = 750;
 
 #[derive(Debug, Error)]
 pub enum Peer2PeerError {
@@ -45,6 +45,11 @@ pub enum Peer2PeerError {
     CurrentRemoteFrameNone,
     #[error("GGPO Session error {0}")]
     GGPO(String),
+    #[error("Sync Error")]
+    Sync {
+        #[from]
+        source: SyncError,
+    },
 }
 
 #[derive(Clone)]
@@ -55,8 +60,8 @@ where
     callbacks: Arc<Mutex<T>>,
     sync: Arc<Mutex<GGPOSync<T>>>,
     udp: Arc<Mutex<Udp<Self>>>,
-    endpoints: [Arc<Mutex<UdpProtocol<Self>>>; GGPO_MAX_PLAYERS],
-    spectators: [Arc<Mutex<UdpProtocol<Self>>>; GGPO_MAX_SPECTATORS],
+    endpoints: Vec<Arc<Mutex<UdpProtocol<Self>>>>, //; GGPO_MAX_PLAYERS],
+    spectators: Vec<Arc<Mutex<UdpProtocol<Self>>>>, //; GGPO_MAX_SPECTATORS],
     num_spectators: usize,
     input_size: usize,
 
@@ -278,7 +283,7 @@ where
         if *self.synchronizing.lock().await {
             return Err(GGPOError::NotSynchronized);
         }
-        let flags = self.sync.lock().await.synchronize_inputs(values);
+        let flags = self.sync.lock().await.synchronize_inputs(values).await?;
         if let Some(d_flags) = disconnect_flags {
             *d_flags = flags;
         }
@@ -395,27 +400,62 @@ where
 }
 
 impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
-    pub fn new(
-        callbacks: &T,
+    pub async fn new(
+        callbacks: Arc<Mutex<T>>,
         game_name: &str,
         local_port: u16,
-        num_players: i32,
-        input_size: i32,
+        num_players: usize,
+        input_size: usize,
     ) -> Result<Self, Peer2PeerError> {
+        let mut connect_status: [Arc<Mutex<ConnectStatus>>; UDP_MSG_MAX_PLAYERS] =
+            Default::default();
+        for i in 0..UDP_MSG_MAX_PLAYERS {
+            connect_status[i] = Arc::new(Mutex::new(ConnectStatus::new()));
+        }
+
         let udp = Udp::<Self>::new();
-        // let m = Self {
-        //     num_players,
-        //     input_size,
-        //     num_spectators: 0,
-        //     next_spectator_frame: 0,
-        //     next_recommended_sleep: 0,
-        //     callbacks,
-        //     synchronizing: true,
-        //     udp: udp,
-        //     disconnect_timeout: DEFAULT_DISCONNECT_TIMEOUT,
-        // };
-        // Err("Failed to create a new p2p backend.".to_string())
-        todo!()
+
+        /*
+         * Initialize the synchronziation layer
+         */
+        let sync = Arc::new(Mutex::new(GGPOSync::new(&connect_status)));
+        let mut config = sync::Config::new();
+        config.init(
+            callbacks.clone(),
+            ggpo::GGPO_MAX_PREDICTION_FRAMES,
+            num_players,
+            input_size,
+        );
+        sync.lock().await.init(config);
+
+        // Init the UDP layer
+
+        let mut spectators = Vec::with_capacity(GGPO_MAX_SPECTATORS);
+        for i in 0..GGPO_MAX_SPECTATORS {
+            spectators[i] = Arc::new(Mutex::new(UdpProtocol::new()));
+        }
+
+        let mut endpoints = Vec::with_capacity(GGPO_MAX_PLAYERS);
+        for i in 0..GGPO_MAX_PLAYERS {
+            endpoints[i] = Arc::new(Mutex::new(UdpProtocol::new()));
+        }
+
+        Ok(Self {
+            num_players,
+            input_size,
+            num_spectators: 0,
+            next_spectator_frame: 0,
+            next_recommended_sleep: 0,
+            callbacks: callbacks.clone(),
+            synchronizing: Arc::new(Mutex::new(true)),
+            udp: Arc::new(Mutex::new(udp)),
+            disconnect_timeout: DEFAULT_DISCONNECT_TIMEOUT,
+            disconnect_notify_start: DEFAULT_DISCONNECT_NOTIFY_START,
+            sync,
+            local_connect_status: connect_status,
+            spectators,
+            endpoints,
+        })
     }
 
     pub async fn init(
@@ -423,6 +463,9 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
         p2p: Arc<Mutex<Peer2PeerBackend<T>>>,
         local_port: u16,
     ) -> Result<(), Peer2PeerError> {
+        /*
+         * Initialize the UDP port
+         */
         self.udp.lock().await.init(local_port, p2p).await?;
         Ok(())
     }

@@ -12,15 +12,20 @@ use async_mutex::Mutex;
 use bytes::Bytes;
 use log::{error, info, warn};
 use std::{collections::VecDeque, sync::Arc};
+use thiserror::Error;
 
-// use arraydeque::ArrayDeque;
+#[derive(Debug, Error)]
+pub enum SyncError {
+    #[error("Config is uninitialized.")]
+    ConfigNone,
+}
 
 #[derive(Debug, Clone)]
 pub struct Config<T: GGPOSessionCallbacks> {
-    callbacks: Option<Arc<Mutex<T>>>,
-    num_prediction_frames: FrameNum,
-    num_players: usize,
-    input_size: usize,
+    pub callbacks: Option<Arc<Mutex<T>>>,
+    pub num_prediction_frames: FrameNum,
+    pub num_players: usize,
+    pub input_size: usize,
 }
 
 impl<T: GGPOSessionCallbacks> Default for Config<T> {
@@ -37,6 +42,17 @@ impl<T: GGPOSessionCallbacks> Default for Config<T> {
 impl<T: GGPOSessionCallbacks> Config<T> {
     pub fn new() -> Self {
         Default::default()
+    }
+    pub fn init(
+        &mut self,
+        callbacks: Arc<Mutex<T>>,
+        num_prediction_frames: FrameNum,
+        num_players: usize,
+        input_size: usize,
+    ) {
+        self.callbacks = Some(callbacks.clone());
+        self.num_players = num_players;
+        self.input_size = input_size;
     }
 }
 
@@ -84,7 +100,7 @@ const BLANK_FRAME: SavedFrame = SavedFrame::new();
 
 #[derive(Debug, Clone)]
 struct SavedState {
-    frames: [SavedFrame; GGPO_MAX_PREDICTION_FRAMES + 2],
+    frames: [SavedFrame; GGPO_MAX_PREDICTION_FRAMES as usize + 2],
     head: usize,
 }
 
@@ -99,66 +115,38 @@ pub struct GGPOSync<T: GGPOSessionCallbacks + Send + Sync + Clone> {
     frame_count: FrameNum,
     max_prediction_frames: FrameNum,
 
-    input_queues: Option<Vec<InputQueue>>,
+    input_queues: Vec<InputQueue>,
 
     // event_queue: ArrayDeque<[Event; 32]>,
     event_queue: VecDeque<Event>,
-    local_connect_status: Option<Vec<ConnectStatus>>,
+    local_connect_status: Vec<Arc<Mutex<ConnectStatus>>>,
 }
 
 impl<T: GGPOSessionCallbacks + Send + Sync + Clone> Default for GGPOSync<T> {
     fn default() -> GGPOSync<T> {
         GGPOSync {
-            local_connect_status: None,
+            local_connect_status: Vec::new(),
             frame_count: 0,
             last_confirmed_frame: None,
             max_prediction_frames: 0,
             saved_state: SavedState {
                 head: 0,
-                frames: [BLANK_FRAME; GGPO_MAX_PREDICTION_FRAMES + 2],
+                frames: [BLANK_FRAME; GGPO_MAX_PREDICTION_FRAMES as usize + 2],
             },
             callbacks: None,
             config: None,
             rolling_back: false,
-            input_queues: None,
+            input_queues: Vec::new(),
             // event_queue: ArrayDeque::new(),
             event_queue: VecDeque::with_capacity(32),
         }
     }
 }
 
-// pub trait SyncTrait<T: GGPOSessionCallbacks> {
-//     fn new(connect_status: Vec<ConnectStatus>) -> GGPOSync<T>;
-//     fn init(&mut self, config: &mut Config<T>);
-//     fn set_last_confirmed_frame(&mut self, frame: Frame);
-//     fn set_frame_delay(&mut self, queue: usize, delay: usize);
-//     fn add_local_input(&mut self, queue: usize, input: &mut GameInput) -> bool;
-//     fn add_remote_input(&mut self, queue: usize, input: &GameInput);
-//     fn get_confirmed_inputs(&mut self, values: &mut Vec<InputBuffer>, frame: Frame) -> usize;
-//     fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> usize;
-
-//     fn check_simulation(&mut self);
-//     fn adjust_simulation(&mut self, seek_to: FrameNum);
-//     fn increment_frame(&mut self);
-
-//     fn get_frame_count(&self) -> FrameNum;
-//     fn in_rollback(&self) -> bool;
-//     fn get_event(&mut self) -> Option<Event>;
-
-//     fn load_frame(&mut self, frame: Frame);
-//     fn save_current_frame(&mut self);
-//     fn find_saved_frame_index(&self, frame: Frame) -> usize;
-//     fn get_last_saved_frame(&self) -> &SavedFrame;
-
-//     fn create_queues(&mut self) -> bool;
-//     fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool;
-//     fn reset_prediction(&mut self, frame_number: FrameNum);
-// }
-
 impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
-    pub fn new(connect_status: Vec<ConnectStatus>) -> Self {
+    pub fn new(connect_status: &[Arc<Mutex<ConnectStatus>>]) -> Self {
         GGPOSync {
-            local_connect_status: Some(Vec::from(connect_status)),
+            local_connect_status: Vec::from(connect_status),
             ..Default::default()
         }
     }
@@ -174,17 +162,13 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
     }
 
     pub fn create_queues(&mut self) -> bool {
-        match (&self.config, &mut self.input_queues) {
-            (Some(config), None) => {
-                self.input_queues = Some(Vec::with_capacity(config.num_players));
-                return self.create_queues();
-            }
-            (Some(config), Some(input_queues)) => {
+        match &self.config {
+            Some(config) => {
                 for i in 0..config.num_players {
-                    input_queues[i] = InputQueue::init(i, config.input_size);
+                    self.input_queues[i] = InputQueue::init(i, config.input_size);
                 }
             }
-            (None, _) => {
+            None => {
                 error!("Config is None and not initialized");
                 return false;
             }
@@ -195,25 +179,15 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
 
     pub fn set_last_confirmed_frame(&mut self, frame: Frame) {
         self.last_confirmed_frame = frame;
-        match (
-            self.last_confirmed_frame,
-            self.config.as_ref(),
-            &mut self.input_queues,
-        ) {
-            (Some(last_confirmed_frame), Some(config), Some(input_queues)) => {
+        match (self.last_confirmed_frame, self.config.as_ref()) {
+            (Some(last_confirmed_frame), Some(config)) => {
                 if last_confirmed_frame > 0 {
                     for i in 0..config.num_players {
-                        input_queues[i].discard_confirmed_frames(last_confirmed_frame - 1);
+                        self.input_queues[i].discard_confirmed_frames(last_confirmed_frame - 1);
                     }
                 }
             }
-            (_, None, _) => error!("Config not initialized"),
-            (_, _, None) => {
-                // Recurse here if we hit this arm with the input queues as None after initializing them.
-                warn!("Input queues weren't initialized, handling it now");
-                self.create_queues();
-                self.set_last_confirmed_frame(frame);
-            }
+            (_, None) => error!("Config not initialized"),
             // If last_confirmed_frame is null, just move on.
             _ => (),
         }
@@ -244,23 +218,13 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
 
         input.frame = Some(self.frame_count);
 
-        match &mut self.input_queues {
-            Some(input_queues) => input_queues[queue as usize].add_input(*input),
-            None => {
-                self.create_queues();
-                if let Some(input_queues) = &mut self.input_queues {
-                    input_queues[queue as usize].add_input(*input);
-                }
-            }
-        }
+        self.input_queues[queue as usize].add_input(*input);
 
         true
     }
 
     pub fn add_remote_input(&mut self, queue: u32, input: &GameInput) {
-        if let Some(input_queues) = &mut self.input_queues {
-            input_queues[queue as usize].add_input(*input);
-        }
+        self.input_queues[queue as usize].add_input(*input);
     }
 
     pub async fn save_current_frame(&mut self) {
@@ -350,29 +314,17 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
     }
 
     pub fn set_frame_delay(&mut self, queue: usize, delay: usize) {
-        match self.input_queues.as_mut() {
-            Some(input_queues) => input_queues[queue].set_frame_delay(delay),
-            None => {
-                warn!("Attempting to use input queues before initializing them, handling it");
-                self.create_queues();
-                self.set_frame_delay(queue, delay);
-            }
-        }
+        self.input_queues[queue].set_frame_delay(delay);
     }
 
     pub fn reset_prediction(&mut self, frame_number: FrameNum) {
-        match (self.input_queues.as_mut(), self.config.as_ref()) {
-            (Some(input_queues), Some(config)) => {
+        match self.config.as_ref() {
+            Some(config) => {
                 for i in 0..config.num_players {
-                    input_queues[i].reset_prediction(frame_number);
+                    self.input_queues[i].reset_prediction(frame_number);
                 }
             }
-            (None, Some(_)) => {
-                warn!("Attempting to use input queues before initializing them, handling it");
-                self.create_queues();
-                self.reset_prediction(frame_number);
-            }
-            (_, None) => error!("Config is uninitialized"),
+            None => error!("Config is uninitialized"),
         }
     }
 
@@ -397,140 +349,134 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.save_current_frame();
     }
 
-    pub fn get_confirmed_inputs(&mut self, values: &mut InputBuffer, frame: Frame) -> usize {
-        let mut disconnect_flags = 0;
+    pub async fn get_confirmed_inputs(
+        &mut self,
+        values: &mut InputBuffer,
+        frame: Frame,
+    ) -> Result<usize, SyncError> {
+        let mut disconnect_flags: usize = 0;
 
-        match (
-            self.local_connect_status.as_ref(),
-            self.input_queues.as_ref(),
-            self.config.as_ref(),
-        ) {
-            (Some(local_connect_status), Some(input_queues), Some(config)) => {
-                assert!(values.len() >= config.num_players);
-                values.fill([b'0'; GAMEINPUT_MAX_BYTES]);
-                for i in 0..config.num_players {
-                    let mut input: GameInput = GameInput::new();
-                    if let Some(frame_value) = frame {
-                        // TODO: What was the original intent when -1 is received as a frame.
-                        if local_connect_status[i].disconnected
-                            && frame_value as i32
-                                > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
-                        {
-                            disconnect_flags |= 1 << i;
-                            input.erase();
-                        } else {
-                            input_queues[i].get_confirmed_input(frame, &mut input);
-                        }
-                        values[i] = input.bits[i];
-                    }
+        assert!(
+            values.len()
+                >= self
+                    .config
+                    .as_ref()
+                    .ok_or(SyncError::ConfigNone)?
+                    .num_players
+        );
+        values.fill([b'0'; GAMEINPUT_MAX_BYTES]);
+        for i in 0..self
+            .config
+            .as_ref()
+            .ok_or(SyncError::ConfigNone)?
+            .num_players
+        {
+            let mut input: GameInput = GameInput::new();
+            if let Some(frame_value) = frame {
+                // TODO: What was the original intent when -1 is received as a frame.
+                let connect_status = *self.local_connect_status[i].lock().await;
+                if connect_status.disconnected
+                    && frame_value as i32 > connect_status.last_frame.unwrap_or(0) as i32 - 1
+                {
+                    disconnect_flags |= 1 << i;
+                    input.erase();
+                } else {
+                    self.input_queues[i].get_confirmed_input(frame, &mut input);
                 }
+                values[i] = input.bits[i];
             }
-            (Some(_), None, Some(_)) => {
-                warn!("Attempting to use input queues before initializing them, handling it");
-                self.create_queues();
-                return self.get_confirmed_inputs(values, frame);
-            }
-            (Some(_), None, None) => error!("input_queues, and config are None"),
-            (None, Some(_), None) => error!("local_connect_status, config are None"),
-            (None, None, Some(_)) => error!("local_connect_status, and input_queues are None"),
-            (None, Some(_), Some(_)) => error!("local_connect_status is None"),
-            (Some(_), Some(_), None) => error!("config is None"),
-            (None, None, None) => error!("local_connect_status, input_queues, and config are None"),
         }
 
-        disconnect_flags
+        Ok(disconnect_flags)
     }
 
-    pub fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> i32 {
+    pub async fn synchronize_inputs(
+        &mut self,
+        values: &mut Vec<InputBuffer>,
+    ) -> Result<i32, SyncError> {
         let mut disconnect_flags = 0;
 
-        match (
-            self.local_connect_status.as_ref(),
-            self.input_queues.as_mut(),
-            self.config.as_ref(),
-        ) {
-            (Some(local_connect_status), Some(input_queues), Some(config)) => {
-                assert!(values.capacity() >= config.num_players);
+        assert!(
+            values.capacity()
+                >= self
+                    .config
+                    .as_ref()
+                    .ok_or(SyncError::ConfigNone)?
+                    .num_players
+        );
 
-                values.fill([[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]);
+        values.fill([[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]);
 
-                for i in 0..config.num_players {
-                    let mut input: GameInput = GameInput::new();
-                    // TODO: Make this unwrap cleaner, or at least document my reasoning.
-                    if local_connect_status[i].disconnected
-                        && self.frame_count as i32
-                            > local_connect_status[i].last_frame.unwrap_or(0) as i32 - 1
-                    {
-                        disconnect_flags |= 1 << i;
-                        input.erase();
-                    } else {
-                        input_queues[i].get_input(self.frame_count, &mut input);
-                    }
-                    values[i] = input.bits;
-                }
+        for i in 0..self
+            .config
+            .as_ref()
+            .ok_or(SyncError::ConfigNone)?
+            .num_players
+        {
+            let mut input: GameInput = GameInput::new();
+            let connect_status = *self.local_connect_status[i].lock().await;
+            if connect_status.disconnected
+                && self.frame_count as i32 > connect_status.last_frame.unwrap_or(0) as i32 - 1
+            {
+                disconnect_flags |= 1 << i;
+                input.erase();
+            } else {
+                self.input_queues[i].get_input(self.frame_count, &mut input);
             }
-            (Some(_), None, Some(_)) => {
-                warn!("Attempting to use input queues before initializing them, handling it");
-                self.create_queues();
-                return self.synchronize_inputs(values);
-            }
-            (Some(_), None, None) => error!("input_queues, and config are None"),
-            (None, Some(_), None) => error!("local_connect_status, config are None"),
-            (None, None, Some(_)) => error!("local_connect_status, and input_queues are None"),
-            (None, Some(_), Some(_)) => error!("local_connect_status is None"),
-            (Some(_), Some(_), None) => error!("config is None"),
-            (None, None, None) => error!("local_connect_status, input_queues, and config are None"),
+            values[i] = input.bits;
         }
 
-        disconnect_flags
+        Ok(disconnect_flags)
     }
 
-    pub async fn check_simulation(&mut self) {
+    pub async fn check_simulation(&mut self) -> Result<(), SyncError> {
         let mut seek_to: FrameNum = 0;
-        if !self.check_simulation_consistency(&mut seek_to) {
+        if !self.check_simulation_consistency(&mut seek_to)? {
             self.adjust_simulation(seek_to).await;
         }
+        Ok(())
     }
 
-    pub fn check_simulation_consistency(&mut self, seek_to: &mut FrameNum) -> bool {
+    pub fn check_simulation_consistency(
+        &mut self,
+        seek_to: &mut FrameNum,
+    ) -> Result<bool, SyncError> {
         let mut first_incorrect: Frame = None;
 
-        match (&self.input_queues, self.config.as_ref()) {
-            (Some(input_queues), Some(config)) => {
-                for i in 0..config.num_players {
-                    match (input_queues[i].get_first_incorrect_frame(), first_incorrect) {
-                        (Some(incorrect), Some(f_cor)) => {
-                            info!(
-                                "considering incorrect frame {} reported by queue {}.\n",
-                                incorrect, i
-                            );
-                            first_incorrect = if incorrect < f_cor {
-                                Some(incorrect)
-                            } else {
-                                first_incorrect
-                            }
-                        }
-                        (Some(incorrect), None) => (first_incorrect = Some(incorrect)),
-                        (None, _) => (),
+        for i in 0..self
+            .config
+            .as_ref()
+            .ok_or(SyncError::ConfigNone)?
+            .num_players
+        {
+            match (
+                self.input_queues[i].get_first_incorrect_frame(),
+                first_incorrect,
+            ) {
+                (Some(incorrect), Some(f_cor)) => {
+                    info!(
+                        "considering incorrect frame {} reported by queue {}.\n",
+                        incorrect, i
+                    );
+                    first_incorrect = if incorrect < f_cor {
+                        Some(incorrect)
+                    } else {
+                        first_incorrect
                     }
                 }
+                (Some(incorrect), None) => (first_incorrect = Some(incorrect)),
+                (None, _) => (),
             }
-            (None, Some(_)) => {
-                warn!("Attempting to use input queues before initializing them, handling it");
-                self.create_queues();
-                return self.check_simulation_consistency(seek_to);
-            }
-            (_, None) => error!("config is None"),
         }
 
         if let Some(f_cor) = first_incorrect {
             *seek_to = f_cor;
         } else {
             info!("Prediction ok. Proceeding.\n");
-            return true;
+            return Ok(true);
         }
 
-        false
+        Ok(false)
     }
 
     pub async fn adjust_simulation(&mut self, seek_to: FrameNum) {

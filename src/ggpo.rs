@@ -3,6 +3,7 @@ use crate::{
     game_input::{Frame, FrameNum, InputBuffer},
     network::udp_proto::UdpProtoError,
     player::{Player, PlayerHandle},
+    sync::SyncError,
 };
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
@@ -11,7 +12,7 @@ use thiserror::Error;
 
 pub const GGPO_MAX_PLAYERS: usize = 4;
 pub const GGPO_MAX_SPECTATORS: usize = 32;
-pub const GGPO_MAX_PREDICTION_FRAMES: usize = 8;
+pub const GGPO_MAX_PREDICTION_FRAMES: FrameNum = 8;
 
 #[derive(Error, Debug)]
 pub enum GGPOError {
@@ -52,6 +53,11 @@ pub enum GGPOError {
     UdpProto {
         #[from]
         source: UdpProtoError,
+    },
+    #[error("Synchronization engine error.")]
+    Sync {
+        #[from]
+        source: SyncError,
     },
 }
 pub struct ConnectedToPeer {
