@@ -1,6 +1,6 @@
 [package]
 name = "ggpo-rs"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Tyler Port <tyler274port@gmail.com>"]
 edition = "2018"
 description = "A reimplementation of GGPO(https://github.com/pond3r/ggpo) in Rust"
