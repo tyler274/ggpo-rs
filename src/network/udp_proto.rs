@@ -10,8 +10,9 @@ use crate::{
     },
     time_sync::TimeSync,
 };
-use async_mutex::Mutex;
+// use async_mutex::Mutex;
 use log::{error, info, trace};
+use parking_lot::Mutex;
 use rand::prelude::*;
 use rand_distr::{Distribution, Normal};
 use std::sync::Arc;
@@ -299,6 +300,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
     pub fn init(
         &mut self,
         udp: Arc<Mutex<Udp<Callback>>>,
+        // poll: Arc<Mutex<Poll>>,
         queue: u32,
         addr: SocketAddr,
         status: &[Arc<Mutex<ConnectStatus>>; UDP_MSG_MAX_PLAYERS],
@@ -309,9 +311,10 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
 
         self.peer_addr = Some(addr);
         self.magic_number = self.rng.gen();
+        // poll.lock().registry().register(source, token, interests)
     }
 
-    pub async fn send_input(&mut self, input: &GameInput) -> Result<(), UdpProtoError> {
+    pub fn send_input(&mut self, input: &GameInput) -> Result<(), UdpProtoError> {
         // let udp = self.udp.as_ref().ok_or(UdpProtoError::UdpUninit)?;
 
         match self.state {
@@ -342,10 +345,10 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
             _ => {}
         }
 
-        self.send_pending_output().await
+        self.send_pending_output()
     }
 
-    pub async fn send_pending_output(&mut self) -> Result<(), UdpProtoError> {
+    pub fn send_pending_output(&mut self) -> Result<(), UdpProtoError> {
         let mut msg = UdpMsg::new(MsgType::Input);
         let mut offset = 0;
         let mut bits: [u8; MAX_COMPRESSED_BITS];
@@ -364,13 +367,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                     last.frame == None
                         || last.frame.unwrap_or(0) + 1 == input.start_frame.unwrap_or(0)
                 );
-
-                for j in 0..self.pending_output.len() {
-                    let current: &GameInput = self
-                        .pending_output
-                        .get(j)
-                        .ok_or(UdpProtoError::PendingOutputItemOOB(j))?;
-
+                for current in self.pending_output.iter() {
                     if current.bits != last.bits {
                         assert!(
                             (GAMEINPUT_MAX_BYTES
@@ -404,20 +401,20 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
 
             input.disconnect_requested = self.state == State::Disconnected;
             for i in 0..self.local_connect_status.len() {
-                input.peer_connect_status[i] = *self.local_connect_status[i].lock().await;
+                input.peer_connect_status[i] = *self.local_connect_status[i].lock();
             }
 
             assert!(offset < MAX_COMPRESSED_BITS);
         }
-        self.send_msg(&mut msg).await
+        self.send_msg(&mut msg)
     }
 
-    pub async fn send_input_ack(&mut self) -> Result<(), UdpProtoError> {
+    pub fn send_input_ack(&mut self) -> Result<(), UdpProtoError> {
         let mut msg = UdpMsg::new(MsgType::InputAck);
         if let MsgEnum::InputAck(mut input_ack) = &mut msg.message {
             input_ack.ack_frame = self.last_received_input.frame;
         }
-        self.send_msg(&mut msg).await
+        self.send_msg(&mut msg)
     }
 
     pub fn is_initialized(&self) -> bool {
@@ -448,13 +445,13 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         false
     }
 
-    pub async fn on_loop_pool(&mut self, _cookie: i32) -> Result<bool, UdpProtoError> {
+    pub fn on_loop_poll(&mut self, _cookie: i32) -> Result<bool, UdpProtoError> {
         if self.udp.is_none() {
-            return Ok(true);
+            return Err(UdpProtoError::UdpUninit);
         }
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-        self.pump_send_queue().await?;
+        self.pump_send_queue()?;
 
         match self.state {
             State::Syncing(Syncing {
@@ -475,7 +472,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                         "No luck syncing after {} ms... Re-queueing sync packet.\n",
                         next_interval
                     );
-                    self.send_sync_request().await?;
+                    self.send_sync_request()?;
                 }
             }
             State::Synchronized => {}
@@ -489,7 +486,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                     || last_input_packet_recv_time + RUNNING_RETRY_INTERVAL < now
                 {
                     info!("Haven't exchanged packets in a while (last received:{:?}  last sent:{:?}).  Resending.\n", self.last_received_input.frame, self.last_sent_input.frame);
-                    self.send_pending_output().await?;
+                    self.send_pending_output()?;
                     last_input_packet_recv_time = now;
                     self.state = State::Running(Running {
                         last_quality_report_time,
@@ -508,7 +505,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                                 SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
                             // TODO: Profile and test whether i8 is enough here in extreme cases.
                             quality_report.frame_advantage = self.local_frame_advantage as i8;
-                            self.send_msg(&mut msg).await?;
+                            self.send_msg(&mut msg)?;
                         }
                         _ => {}
                     }
@@ -538,7 +535,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                         < now
                 {
                     info!("Sending keep alive packet.\n");
-                    self.send_msg(&mut UdpMsg::new(MsgType::KeepAlive)).await?;
+                    self.send_msg(&mut UdpMsg::new(MsgType::KeepAlive))?;
                 }
                 if self.disconnect_timeout > 0
                     && self.disconnect_notify_start > 0
@@ -591,7 +588,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         Ok(())
     }
 
-    pub async fn send_sync_request(&mut self) -> Result<(), UdpProtoError> {
+    pub fn send_sync_request(&mut self) -> Result<(), UdpProtoError> {
         match &mut self.state {
             State::Syncing(Syncing {
                 roundtrips_remaining: _,
@@ -605,14 +602,14 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                     }
                     _ => {}
                 }
-                return self.send_msg(&mut msg).await;
+                return self.send_msg(&mut msg);
             }
             _ => {}
         }
         Ok(())
     }
 
-    pub async fn send_msg(&mut self, msg: &mut UdpMsg) -> Result<(), UdpProtoError> {
+    pub fn send_msg(&mut self, msg: &mut UdpMsg) -> Result<(), UdpProtoError> {
         self.log_msg(LogPrefix::Send, msg);
         self.packets_sent += 1;
         self.last_send_time = std::time::SystemTime::now();
@@ -628,7 +625,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
             queue_time: std::time::SystemTime::now(),
         });
 
-        self.pump_send_queue().await
+        self.pump_send_queue()
     }
 
     pub fn handles_msg(&mut self, from: &SocketAddr, _msg: &UdpMsg) -> Result<bool, UdpProtoError> {
@@ -638,7 +635,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         Ok(self.peer_addr.ok_or(UdpProtoError::PeerAddrUninit)? == *from)
     }
 
-    pub async fn on_msg(&mut self, msg: &UdpMsg) -> Result<(), UdpProtoError> {
+    pub fn on_msg(&mut self, msg: &UdpMsg) -> Result<(), UdpProtoError> {
         let mut handled = false;
 
         // filter out messages that don't match what we expect
@@ -675,11 +672,11 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
             self.on_invalid(msg)?;
         } else {
             handled = match msg.header.packet_type {
-                MsgType::SyncRequest => self.on_sync_request(msg).await?,
+                MsgType::SyncRequest => self.on_sync_request(msg)?,
                 MsgType::Invalid => self.on_invalid(msg)?,
-                MsgType::SyncReply => self.on_sync_reply(msg).await?,
-                MsgType::Input => self.on_input(msg).await?,
-                MsgType::QualityReport => self.on_quality_report(msg).await?,
+                MsgType::SyncReply => self.on_sync_reply(msg)?,
+                MsgType::Input => self.on_input(msg)?,
+                MsgType::QualityReport => self.on_quality_report(msg)?,
                 MsgType::QualityReply => self.on_quality_reply(msg)?,
                 MsgType::KeepAlive => self.on_keep_alive(msg)?,
                 MsgType::InputAck => self.on_input_ack(msg)?,
@@ -737,13 +734,13 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         self.event_queue.push_back(event);
     }
 
-    pub async fn synchronize(&mut self) -> Result<(), UdpProtoError> {
+    pub fn synchronize(&mut self) -> Result<(), UdpProtoError> {
         self.udp.as_ref().ok_or(UdpProtoError::UdpUninit)?;
         self.state = State::Syncing(Syncing {
             roundtrips_remaining: NUM_SYNC_PACKETS,
             random: self.rng.gen(),
         });
-        self.send_sync_request().await
+        self.send_sync_request()
     }
 
     pub fn get_peer_connect_status(&self, id: usize) -> (Frame, bool) {
@@ -784,7 +781,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         Ok(false)
     }
 
-    pub async fn on_sync_request(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
+    pub fn on_sync_request(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
         if self.remote_magic_number != 0 && msg.header.magic != self.remote_magic_number {
             info!(
                 "Ignoring sync request from unknown endpoint ({:?} != {:?}.\n",
@@ -799,11 +796,11 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
             }
             _ => {}
         }
-        self.send_msg(&mut reply).await?;
+        self.send_msg(&mut reply)?;
         Ok(true)
     }
 
-    pub async fn on_sync_reply(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
+    pub fn on_sync_reply(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
         match self.state {
             State::Syncing(syncing) => match msg.message {
                 MsgEnum::SyncReply(sync_reply) => {
@@ -835,7 +832,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                             count: NUM_SYNC_PACKETS - syncing.roundtrips_remaining,
                         });
                         self.queue_event(event);
-                        self.send_sync_request().await?;
+                        self.send_sync_request()?;
                     }
                     return Ok(true);
                 }
@@ -850,7 +847,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         Ok(true)
     }
 
-    pub async fn on_input(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
+    pub fn on_input(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
         /*
          * If a disconnect is requested, go ahead and disconnect now.
          */
@@ -1051,7 +1048,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         Ok(true)
     }
 
-    pub async fn on_quality_report(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
+    pub fn on_quality_report(&mut self, msg: &UdpMsg) -> Result<bool, UdpProtoError> {
         // send a reply so the other side can compute the round trip transmit time.
         let mut reply = UdpMsg::new(MsgType::QualityReply);
         match (&mut reply.message, msg.message) {
@@ -1060,7 +1057,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
             }
             _ => (),
         }
-        self.send_msg(&mut reply).await?;
+        self.send_msg(&mut reply)?;
         return Ok(true);
     }
 
@@ -1127,7 +1124,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
         self.disconnect_notify_start = timeout;
     }
 
-    pub async fn pump_send_queue(&mut self) -> Result<(), UdpProtoError> {
+    pub fn pump_send_queue(&mut self) -> Result<(), UdpProtoError> {
         while !self.send_queue.is_empty() {
             let entry = self.send_queue.front().unwrap();
 
@@ -1175,9 +1172,7 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                     .as_mut()
                     .ok_or(UdpProtoError::UdpUninit)?
                     .lock()
-                    .await
-                    .send_to(entry.msg.clone(), &[entry.dest_addr])
-                    .await?;
+                    .send_to(entry.msg.clone(), &entry.dest_addr)?;
             }
             self.send_queue.pop_front();
         }
@@ -1192,16 +1187,14 @@ impl<Callback: UdpCallback + Send + Sync> UdpProtocol<Callback> {
                 .as_mut()
                 .ok_or(UdpProtoError::UdpUninit)?
                 .lock()
-                .await
                 .send_to(
                     self.oo_packet
                         .msg
                         .as_ref()
                         .ok_or(UdpProtoError::OOPacketMsgUninit)?
                         .clone(),
-                    &[self.oo_packet.dest_addr],
-                )
-                .await?;
+                    &self.oo_packet.dest_addr,
+                )?;
             self.oo_packet.msg = None;
         }
 

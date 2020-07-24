@@ -27,6 +27,8 @@ async-mutex = "1.1"
 # A stop-gap until this hard problem is solved. 
 async-trait = "0.1"
 # async-trait-ext = "0.2"
+parking_lot = "0.11"
+mio = {version = "0.7", features=["udp", "os-poll"]}
 
 [lib]
 name = "ggpo"

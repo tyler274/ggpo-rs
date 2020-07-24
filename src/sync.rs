@@ -6,10 +6,10 @@ use crate::{
     input_queue::InputQueue,
     network::udp_msg::ConnectStatus,
 };
-
-use async_mutex::Mutex;
+// use async_mutex::Mutex;
 use bytes::Bytes;
 use log::{error, info};
+use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 use thiserror::Error;
 
@@ -193,7 +193,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
     }
 
-    pub async fn add_local_input(&mut self, queue: u32, input: &mut GameInput) -> bool {
+    pub fn add_local_input(&mut self, queue: u32, input: &mut GameInput) -> bool {
         let frames_behind: FrameNum;
         match self.last_confirmed_frame {
             Some(last_confirmed_frame) => frames_behind = self.frame_count - last_confirmed_frame,
@@ -208,7 +208,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
 
         if self.frame_count == 0 {
-            self.save_current_frame().await;
+            self.save_current_frame();
         }
 
         info!(
@@ -227,7 +227,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.input_queues[queue as usize].add_input(*input);
     }
 
-    pub async fn save_current_frame(&mut self) {
+    pub fn save_current_frame(&mut self) {
         // Copying this for reference later.
         // TODO: zstd compression
         /*
@@ -245,7 +245,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
                 }),
                 buffer,
             ) => {
-                callbacks.lock().await.free_buffer(buffer);
+                callbacks.lock().free_buffer(buffer);
                 state.buffer.clear();
             }
             (
@@ -260,7 +260,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         state.frame = Some(self.frame_count);
         match self.callbacks.as_mut() {
             Some(callbacks) => {
-                callbacks.lock().await.save_game_state(
+                callbacks.lock().save_game_state(
                     &state.buffer,
                     &state.size,
                     state.checksum,
@@ -344,12 +344,12 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.rolling_back
     }
 
-    pub async fn increment_frame(&mut self) {
+    pub fn increment_frame(&mut self) {
         self.frame_count += 1;
-        self.save_current_frame().await;
+        self.save_current_frame();
     }
 
-    pub async fn get_confirmed_inputs(
+    pub fn get_confirmed_inputs(
         &mut self,
         values: &mut InputBuffer,
         frame: Frame,
@@ -374,7 +374,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
             let mut input: GameInput = GameInput::new();
             if let Some(frame_value) = frame {
                 // TODO: What was the original intent when -1 is received as a frame.
-                let connect_status = *self.local_connect_status[i].lock().await;
+                let connect_status = *self.local_connect_status[i].lock();
                 if connect_status.disconnected
                     && frame_value as i32 > connect_status.last_frame.unwrap_or(0) as i32 - 1
                 {
@@ -390,10 +390,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         Ok(disconnect_flags)
     }
 
-    pub async fn synchronize_inputs(
-        &mut self,
-        values: &mut Vec<InputBuffer>,
-    ) -> Result<i32, SyncError> {
+    pub fn synchronize_inputs(&mut self, values: &mut Vec<InputBuffer>) -> Result<i32, SyncError> {
         let mut disconnect_flags = 0;
 
         assert!(
@@ -414,7 +411,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
             .num_players
         {
             let mut input: GameInput = GameInput::new();
-            let connect_status = *self.local_connect_status[i].lock().await;
+            let connect_status = *self.local_connect_status[i].lock();
             if connect_status.disconnected
                 && self.frame_count as i32 > connect_status.last_frame.unwrap_or(0) as i32 - 1
             {
@@ -429,10 +426,10 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         Ok(disconnect_flags)
     }
 
-    pub async fn check_simulation(&mut self) -> Result<(), SyncError> {
+    pub fn check_simulation(&mut self) -> Result<(), SyncError> {
         let mut seek_to: FrameNum = 0;
         if !self.check_simulation_consistency(&mut seek_to)? {
-            self.adjust_simulation(seek_to).await;
+            self.adjust_simulation(seek_to);
         }
         Ok(())
     }
@@ -479,7 +476,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         Ok(false)
     }
 
-    pub async fn adjust_simulation(&mut self, seek_to: FrameNum) {
+    pub fn adjust_simulation(&mut self, seek_to: FrameNum) {
         let framecount = self.frame_count;
         let count = self.frame_count - seek_to;
 
@@ -488,7 +485,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         /*
          * Flush our input queue and load the last frame.
          */
-        self.load_frame(Some(seek_to)).await;
+        self.load_frame(Some(seek_to));
         assert!(self.frame_count == seek_to);
 
         /*
@@ -499,7 +496,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
 
         if let Some(callbacks) = &mut self.callbacks {
             for _i in 0..count {
-                callbacks.lock().await.advance_frame(0);
+                callbacks.lock().advance_frame(0);
             }
         } else {
             error!("Callbacks are uninitialized");
@@ -512,7 +509,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         info!("---\n");
     }
 
-    pub async fn load_frame(&mut self, frame: Frame) {
+    pub fn load_frame(&mut self, frame: Frame) {
         // find the frame in question
         if frame == Some(self.frame_count) {
             info!("Skipping NOP.\n");
@@ -544,7 +541,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         match (&mut self.callbacks, &state.buffer) {
             (_, s) if s.len() == 0 => error!("State buffer not initialized"),
             (Some(callbacks), buffer) => {
-                callbacks.lock().await.load_game_state(&buffer, state.size);
+                callbacks.lock().load_game_state(&buffer, state.size);
             }
             (None, _) => error!("Callbacks not initialized!"),
         };

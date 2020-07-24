@@ -25,7 +25,6 @@ impl GameInput {
         GameInput {
             frame: None,
             size: 0,
-            // bits: [b'0'; GAMEINPUT_MAX_BYTES],
             bits: [[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS],
         }
     }

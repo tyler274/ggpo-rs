@@ -3,12 +3,14 @@
 // #![feature(const_generics)]
 #![feature(slice_fill)]
 // #![feature(const_in_array_repeat_expressions)]
-#![feature(move_ref_pattern)]
+// #![feature(move_ref_pattern)]
 #![warn(clippy::all)]
 #![forbid(unsafe_code)]
 
 pub mod backends {
     pub mod p2p;
+    pub mod spectator;
+    pub mod sync_test;
 }
 pub mod game_input;
 pub mod ggpo;

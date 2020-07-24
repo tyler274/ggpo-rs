@@ -5,8 +5,8 @@ use crate::{
     player::{Player, PlayerHandle},
     sync::SyncError,
 };
-use async_trait::async_trait;
 use bytes::Bytes;
+use std::time::Duration;
 // use log::info;
 use thiserror::Error;
 
@@ -59,6 +59,16 @@ pub enum GGPOError {
         #[from]
         source: SyncError,
     },
+    #[error("IO error.")]
+    IO {
+        #[from]
+        source: std::io::Error,
+    },
+    #[error("UDP Error.")]
+    UDP {
+        #[from]
+        source: crate::network::udp::UdpError,
+    },
 }
 pub struct ConnectedToPeer {
     pub player: PlayerHandle,
@@ -102,21 +112,17 @@ pub enum Event {
     ConnectionResumed(ConnectionResumed),
 }
 
-#[async_trait()]
+// #[async_trait()]
 pub trait Session {
-    async fn do_poll(&mut self, _timeout: usize) -> Result<(), GGPOError> {
+    fn do_poll(&mut self, timeout: Option<Duration>) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn add_player(
-        &mut self,
-        _player: Player,
-        _handle: &mut PlayerHandle,
-    ) -> Result<(), GGPOError> {
+    fn add_player(&mut self, _player: Player, _handle: &mut PlayerHandle) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn add_local_input(
+    fn add_local_input(
         &mut self,
         _player: PlayerHandle,
         _values: &InputBuffer,
@@ -125,15 +131,15 @@ pub trait Session {
         unimplemented!()
     }
 
-    async fn synchronize_input(
-        &mut self,
+    fn synchronize_input(
+        &self,
         _values: &mut Vec<InputBuffer>,
         _disconnect_flags: Option<&mut i32>,
     ) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn increment_frame(&mut self) -> Result<(), GGPOError> {
+    fn increment_frame(&mut self) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
@@ -141,37 +147,33 @@ pub trait Session {
         unimplemented!()
     }
 
-    async fn disconnect_player(&self, _handle: PlayerHandle) -> Result<(), GGPOError> {
+    fn disconnect_player(&self, _handle: PlayerHandle) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn get_network_stats(&self, _handle: PlayerHandle) -> Result<NetworkStats, GGPOError> {
+    fn get_network_stats(&self, _handle: PlayerHandle) -> Result<NetworkStats, GGPOError> {
         unimplemented!()
     }
 
     //TODO: stub this with the log crate
-    fn logv(_fmt: &str) -> Result<(), GGPOError> {
+    fn logv(_fmt: String) -> Result<(), GGPOError> {
         unimplemented!()
     }
 
-    async fn set_frame_delay(
-        &mut self,
-        _player: PlayerHandle,
-        _delay: i32,
-    ) -> Result<(), GGPOError> {
+    fn set_frame_delay(&mut self, _player: PlayerHandle, _delay: i32) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 
-    async fn set_disconnect_timeout(&mut self, _timeout: u128) -> Result<(), GGPOError> {
+    fn set_disconnect_timeout(&mut self, _timeout: u128) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 
-    async fn set_disconnect_notify_start(&mut self, _timeout: u128) -> Result<(), GGPOError> {
+    fn set_disconnect_notify_start(&mut self, _timeout: u128) -> Result<(), GGPOError> {
         Err(GGPOError::Unsupported)
     }
 }
 
-pub trait GGPOSessionCallbacks: Clone + Sized {
+pub trait GGPOSessionCallbacks: Clone {
     // was deprecated anyway
     // fn begin_game() -> bool;
 
