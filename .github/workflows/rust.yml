@@ -23,9 +23,6 @@ jobs:
           profile: minimal
           toolchain: ${{ matrix.toolchain }}
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
       - uses: actions/cache@v2
         with:
           path: |
@@ -33,6 +30,10 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+
 
   test:
     name: Test Suite  ${{ matrix.os }} (${{ matrix.toolchain }})
@@ -49,9 +50,6 @@ jobs:
           profile: minimal
           toolchain: ${{ matrix.toolchain }}
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
       - uses: actions/cache@v2
         with:
           path: |
@@ -59,6 +57,9 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
 
   fmt:
     name: Rustfmt (${{ matrix.toolchain }})
@@ -76,11 +77,6 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           override: true
           components: rustfmt
-      # - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
       - uses: actions/cache@v2
         with:
           path: |
@@ -88,6 +84,10 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
 
   clippy:
     name: Clippy (${{ matrix.toolchain }})
@@ -110,10 +110,6 @@ jobs:
           components: clippy
           toolchain: ${{ matrix.toolchain }}
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
       - uses: actions/cache@v2
         with:
           path: |
@@ -121,3 +117,7 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
