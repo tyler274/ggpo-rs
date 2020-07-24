@@ -153,45 +153,37 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         }
     }
 
-    pub fn init(&mut self, config: Config<T>) {
+    pub fn init(&mut self, config: Config<T>) -> Result<(), SyncError> {
         // self.callbacks = config.callbacks;
         self.max_prediction_frames = config.num_prediction_frames;
         self.config = Some(config.clone());
         self.frame_count = 0;
         self.rolling_back = false;
 
-        self.create_queues();
+        self.create_queues()?;
+        Ok(())
     }
 
-    pub fn create_queues(&mut self) -> bool {
-        match &self.config {
-            Some(config) => {
-                for i in 0..config.num_players {
-                    self.input_queues[i] = InputQueue::init(i, config.input_size);
-                }
-            }
-            None => {
-                error!("Config is None and not initialized");
-                return false;
-            }
+    pub fn create_queues(&mut self) -> Result<bool, SyncError> {
+        let config = self.config.as_ref().ok_or(SyncError::ConfigNone)?;
+        for i in 0..config.num_players {
+            self.input_queues[i] = InputQueue::init(i, config.input_size);
         }
 
-        true
+        Ok(true)
     }
 
     pub fn set_last_confirmed_frame(&mut self, frame: Frame) -> Result<(), SyncError> {
         self.last_confirmed_frame = frame;
-        match (self.last_confirmed_frame, self.config.as_ref()) {
-            (Some(last_confirmed_frame), Some(config)) => {
-                if last_confirmed_frame > 0 {
-                    for i in 0..config.num_players {
-                        self.input_queues[i].discard_confirmed_frames(last_confirmed_frame - 1);
-                    }
+        let config = self.config.as_ref().ok_or(SyncError::ConfigNone)?;
+        if let Some(last_confirmed_frame) = self.last_confirmed_frame {
+            if last_confirmed_frame > 0 {
+                for i in 0..config.num_players {
+                    self.input_queues[i].discard_confirmed_frames(last_confirmed_frame - 1);
                 }
             }
-            (_, None) => return Err(SyncError::ConfigNone),
+        } else {
             // If last_confirmed_frame is null, just move on.
-            _ => (),
         }
         Ok(())
     }
@@ -235,7 +227,6 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
     }
 
     pub fn save_current_frame(&mut self) -> Result<(), SyncError> {
-        // Copying this for reference later.
         // TODO: zstd compression for frame buffer
         /*
          * See StateCompress for the real save feature implemented by FinalBurn.
@@ -247,7 +238,7 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         {
             let mut callbacks = self
                 .callbacks
-                .as_mut()
+                .as_ref()
                 .ok_or(SyncError::CallbacksNone)?
                 .lock();
             callbacks.free_buffer(&state.buffer);
@@ -303,15 +294,16 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         self.input_queues[queue].set_frame_delay(delay);
     }
 
-    pub fn reset_prediction(&mut self, frame_number: FrameNum) {
-        match self.config.as_ref() {
-            Some(config) => {
-                for i in 0..config.num_players {
-                    self.input_queues[i].reset_prediction(frame_number);
-                }
-            }
-            None => error!("Config is uninitialized"),
+    pub fn reset_prediction(&mut self, frame_number: FrameNum) -> Result<(), SyncError> {
+        for i in 0..self
+            .config
+            .as_ref()
+            .ok_or(SyncError::ConfigNone)?
+            .num_players
+        {
+            self.input_queues[i].reset_prediction(frame_number);
         }
+        Ok(())
     }
 
     pub fn get_event(&mut self, event: &mut Event) -> bool {
@@ -420,7 +412,7 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
     pub fn check_simulation(&mut self) -> Result<(), SyncError> {
         let mut seek_to: FrameNum = 0;
         if !self.check_simulation_consistency(&mut seek_to)? {
-            self.adjust_simulation(seek_to);
+            self.adjust_simulation(seek_to)?;
         }
         Ok(())
     }
@@ -467,7 +459,7 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         Ok(false)
     }
 
-    pub fn adjust_simulation(&mut self, seek_to: FrameNum) {
+    pub fn adjust_simulation(&mut self, seek_to: FrameNum) -> Result<(), SyncError> {
         let framecount = self.frame_count;
         let count = self.frame_count - seek_to;
 
@@ -476,21 +468,23 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         /*
          * Flush our input queue and load the last frame.
          */
-        self.load_frame(Some(seek_to));
+        self.load_frame(Some(seek_to))?;
         assert!(self.frame_count == seek_to);
 
         /*
          * Advance frame by frame (stuffing notifications back to
          * the master).
          */
-        self.reset_prediction(self.frame_count);
-
-        if let Some(callbacks) = &mut self.callbacks {
+        self.reset_prediction(self.frame_count)?;
+        {
+            let mut callbacks = self
+                .callbacks
+                .as_mut()
+                .ok_or(SyncError::CallbacksNone)?
+                .lock();
             for _i in 0..count {
-                callbacks.lock().advance_frame(0);
+                callbacks.advance_frame(0);
             }
-        } else {
-            error!("Callbacks are uninitialized");
         }
 
         assert!(self.frame_count == framecount);
@@ -498,13 +492,14 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         self.rolling_back = false;
 
         info!("---\n");
+        Ok(())
     }
 
-    pub fn load_frame(&mut self, frame: Frame) {
+    pub fn load_frame(&mut self, frame: Frame) -> Result<(), SyncError> {
         // find the frame in question
         if frame == Some(self.frame_count) {
             info!("Skipping NOP.\n");
-            return;
+            return Ok(());
         }
 
         // Move the head pointer back and load it up
@@ -529,13 +524,11 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
         // TODO: Obviously these serve the same purpose, but still testing the use of the `bytes` crate
         assert!(state.buffer.len() > 0 && state.size > 0);
 
-        match (&mut self.callbacks, &state.buffer) {
-            (_, s) if s.len() == 0 => error!("State buffer not initialized"),
-            (Some(callbacks), buffer) => {
-                callbacks.lock().load_game_state(&buffer, state.size);
-            }
-            (None, _) => error!("Callbacks not initialized!"),
-        };
+        self.callbacks
+            .as_ref()
+            .ok_or(SyncError::CallbacksNone)?
+            .lock()
+            .load_game_state(&state.buffer, state.size);
 
         // Reset framecount and the head of the state ring-buffer to point in
         // advance of the current frame (as if we had just finished executing it).
@@ -545,5 +538,6 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
             self.frame_count
         };
         self.saved_state.head = self.saved_state.head + 1;
+        Ok(())
     }
 }

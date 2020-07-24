@@ -107,7 +107,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
             num_players,
             input_size,
         );
-        sync.lock().init(config);
+        sync.lock().init(config)?;
 
         // Init the UDP layer
 
@@ -195,7 +195,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
                 "adjusting simulation to account for the fact that {:?} disconnected @ {:?}.\n",
                 queue, sync_to
             );
-            self.sync.lock().adjust_simulation(sync_to);
+            self.sync.lock().adjust_simulation(sync_to)?;
             info!("Finished adjusting simulation.\n");
         }
 

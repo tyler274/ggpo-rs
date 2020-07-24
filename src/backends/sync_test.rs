@@ -157,7 +157,7 @@ where
         sync_config.callbacks = Some(callbacks.clone());
         sync_config.num_prediction_frames = ggpo::GGPO_MAX_PREDICTION_FRAMES;
         let sync = Arc::new(Mutex::new(GGPOSync::new(&[])));
-        sync.lock().init(sync_config);
+        sync.lock().init(sync_config)?;
 
         let s = Self {
             callbacks: callbacks.clone(),
