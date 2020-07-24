@@ -364,7 +364,9 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
                     .ok_or(SyncError::ConfigNone)?
                     .num_players
         );
-        values.fill([b'0'; GAMEINPUT_MAX_BYTES]);
+        // TODO: When slice.fill is stabilized, lower directly to memset.
+        // values.fill([b'0'; GAMEINPUT_MAX_BYTES]);
+        *values = [[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS];
         for i in 0..self
             .config
             .as_ref()
@@ -401,8 +403,11 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
                     .ok_or(SyncError::ConfigNone)?
                     .num_players
         );
-
-        values.fill([[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]);
+        // TODO: When slice.fill is stabilized, lower directly to memset.
+        // values.fill([[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS]);
+        for val in values.iter_mut() {
+            *val = [[b'0'; GAMEINPUT_MAX_BYTES]; GAMEINPUT_MAX_PLAYERS];
+        }
 
         for i in 0..self
             .config

@@ -232,10 +232,13 @@ impl UdpMsg {
             }
         };
     }
+
     pub fn packet_size(self) -> usize {
         size_of::<Header>() + self.payload_size()
     }
-    pub const fn new(t: MsgType) -> Self {
+
+    // TODO: Make const on nightly/when const fn and const match are stabilized
+    pub fn new(t: MsgType) -> Self {
         match t {
             MsgType::Input => Self {
                 header: Header::new(t),
