@@ -18,6 +18,9 @@ jobs:
           profile: minimal
           toolchain: ${{ matrix.toolchain }}
           override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
       - uses: actions/cache@v2
         with:
           path: |
@@ -25,10 +28,6 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-
 
   test:
     name: Test Suite  ${{ matrix.os }} (${{ matrix.toolchain }})
