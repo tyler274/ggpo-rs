@@ -69,6 +69,11 @@ pub enum GGPOError {
         #[from]
         source: crate::network::udp::UdpError,
     },
+    #[error("Sync Test backend error.")]
+    SyncTestError {
+        #[from]
+        source: crate::backends::sync_test::SyncTestError,
+    },
 }
 pub struct ConnectedToPeer {
     pub player: PlayerHandle,
@@ -114,7 +119,7 @@ pub enum Event {
 
 // #[async_trait()]
 pub trait Session {
-    fn do_poll(&mut self, timeout: Option<Duration>) -> Result<(), GGPOError> {
+    fn do_poll(&mut self, _timeout: Option<Duration>) -> Result<(), GGPOError> {
         unimplemented!()
     }
 

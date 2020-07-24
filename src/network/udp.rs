@@ -6,7 +6,7 @@ use crate::network::udp_msg::UdpMsg;
 // use blocking::unblock;
 use bytes::BytesMut;
 use log::{error, info};
-use mio::{net::UdpSocket, Events, Interest, Poll, Token};
+use mio::{net::UdpSocket, Interest, Poll, Token};
 use parking_lot::Mutex;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},

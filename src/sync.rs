@@ -17,6 +17,8 @@ use thiserror::Error;
 pub enum SyncError {
     #[error("Config is uninitialized.")]
     ConfigNone,
+    #[error("Callbacks are uninitialized/None")]
+    CallbacksNone,
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +107,7 @@ struct SavedState {
 }
 
 #[derive(Clone)]
-pub struct GGPOSync<T: GGPOSessionCallbacks + Send + Sync + Clone> {
+pub struct GGPOSync<T: GGPOSessionCallbacks> {
     callbacks: Option<Arc<Mutex<T>>>,
     saved_state: SavedState,
     config: Option<Config<T>>,
@@ -122,7 +124,7 @@ pub struct GGPOSync<T: GGPOSessionCallbacks + Send + Sync + Clone> {
     local_connect_status: Vec<Arc<Mutex<ConnectStatus>>>,
 }
 
-impl<T: GGPOSessionCallbacks + Send + Sync + Clone> Default for GGPOSync<T> {
+impl<T: GGPOSessionCallbacks> Default for GGPOSync<T> {
     fn default() -> GGPOSync<T> {
         GGPOSync {
             local_connect_status: Vec::new(),
@@ -143,7 +145,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> Default for GGPOSync<T> {
     }
 }
 
-impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
+impl<T: GGPOSessionCallbacks> GGPOSync<T> {
     pub fn new(connect_status: &[Arc<Mutex<ConnectStatus>>]) -> Self {
         GGPOSync {
             local_connect_status: Vec::from(connect_status),
@@ -177,7 +179,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         true
     }
 
-    pub fn set_last_confirmed_frame(&mut self, frame: Frame) {
+    pub fn set_last_confirmed_frame(&mut self, frame: Frame) -> Result<(), SyncError> {
         self.last_confirmed_frame = frame;
         match (self.last_confirmed_frame, self.config.as_ref()) {
             (Some(last_confirmed_frame), Some(config)) => {
@@ -187,13 +189,18 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
                     }
                 }
             }
-            (_, None) => error!("Config not initialized"),
+            (_, None) => return Err(SyncError::ConfigNone),
             // If last_confirmed_frame is null, just move on.
             _ => (),
         }
+        Ok(())
     }
 
-    pub fn add_local_input(&mut self, queue: u32, input: &mut GameInput) -> bool {
+    pub fn add_local_input(
+        &mut self,
+        queue: u32,
+        input: &mut GameInput,
+    ) -> Result<bool, SyncError> {
         let frames_behind: FrameNum;
         match self.last_confirmed_frame {
             Some(last_confirmed_frame) => frames_behind = self.frame_count - last_confirmed_frame,
@@ -204,11 +211,11 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
             && frames_behind >= self.max_prediction_frames
         {
             info!("Rejecting input from emulator: reached prediction barrier.\n");
-            return false;
+            return Ok(false);
         }
 
         if self.frame_count == 0 {
-            self.save_current_frame();
+            self.save_current_frame()?;
         }
 
         info!(
@@ -220,16 +227,16 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
 
         self.input_queues[queue as usize].add_input(*input);
 
-        true
+        Ok(true)
     }
 
     pub fn add_remote_input(&mut self, queue: u32, input: &GameInput) {
         self.input_queues[queue as usize].add_input(*input);
     }
 
-    pub fn save_current_frame(&mut self) {
+    pub fn save_current_frame(&mut self) -> Result<(), SyncError> {
         // Copying this for reference later.
-        // TODO: zstd compression
+        // TODO: zstd compression for frame buffer
         /*
          * See StateCompress for the real save feature implemented by FinalBurn.
          * Write everything into the head, then advance the head pointer.
@@ -237,39 +244,17 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
 
         // it was pointer arithmetic
         let mut state: &mut SavedFrame = &mut self.saved_state.frames[self.saved_state.head];
-        match (&mut self.config, &state.buffer) {
-            (
-                Some(Config {
-                    callbacks: Some(callbacks),
-                    ..
-                }),
-                buffer,
-            ) => {
-                callbacks.lock().free_buffer(buffer);
-                state.buffer.clear();
-            }
-            (
-                Some(Config {
-                    callbacks: None, ..
-                }),
-                _,
-            ) => error!("Callbacks not initialized"),
-            (None, _) => error!("Config not initialized"),
+        {
+            let mut callbacks = self
+                .callbacks
+                .as_mut()
+                .ok_or(SyncError::CallbacksNone)?
+                .lock();
+            callbacks.free_buffer(&state.buffer);
+            state.buffer.clear();
+            state.frame = Some(self.frame_count);
+            callbacks.save_game_state(&state.buffer, &state.size, state.checksum, state.frame);
         }
-
-        state.frame = Some(self.frame_count);
-        match self.callbacks.as_mut() {
-            Some(callbacks) => {
-                callbacks.lock().save_game_state(
-                    &state.buffer,
-                    &state.size,
-                    state.checksum,
-                    state.frame,
-                );
-            }
-            None => error!("Callbacks not initialized"),
-        }
-
         match (state.frame, state.checksum) {
             (Some(frame), None) => info!(
                 "=== Saved frame info {} (size: {}  checksum: None).\n",
@@ -286,6 +271,7 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         }
 
         self.saved_state.head += 1;
+        Ok(())
     }
 
     pub fn get_last_saved_frame(&self) -> &SavedFrame {
@@ -344,9 +330,9 @@ impl<T: GGPOSessionCallbacks + Send + Sync + Clone> GGPOSync<T> {
         self.rolling_back
     }
 
-    pub fn increment_frame(&mut self) {
+    pub fn increment_frame(&mut self) -> Result<(), SyncError> {
         self.frame_count += 1;
-        self.save_current_frame();
+        Ok(self.save_current_frame()?)
     }
 
     pub fn get_confirmed_inputs(

@@ -37,25 +37,25 @@ pub struct SDLRenderer {
 }
 
 impl<'a> SDLRenderer {
-    pub fn new(canvas: &Canvas<Window>) -> Self {
-        let rectangle = Rect::new(0, 0, canvas.window().size().0, canvas.window().size().1);
-        Self {
-            // texture_arena,
-            // texture_manager: texture_manager.clone(),
-            // font_manager,
-            // font: font_texture,
-            yellow: Color::RGB(255, 255, 0),
-            white: Color::RGB(255, 255, 255),
-            ship_colors: [
-                Color::RGB(255, 0, 0),
-                Color::RGB(0, 255, 0),
-                Color::RGB(0, 0, 255),
-                Color::RGB(128, 128, 128),
-            ],
-            _status: String::from('\0'),
-            _rc: Rect::new(0, 0, canvas.window().size().0, canvas.window().size().1),
-        }
-    }
+    // pub fn new(canvas: &Canvas<Window>) -> Self {
+    //     let rectangle = Rect::new(0, 0, canvas.window().size().0, canvas.window().size().1);
+    //     Self {
+    //         // texture_arena,
+    //         // texture_manager: texture_manager.clone(),
+    //         // font_manager,
+    //         // font: font_texture,
+    //         yellow: Color::RGB(255, 255, 0),
+    //         white: Color::RGB(255, 255, 255),
+    //         ship_colors: [
+    //             Color::RGB(255, 0, 0),
+    //             Color::RGB(0, 255, 0),
+    //             Color::RGB(0, 0, 255),
+    //             Color::RGB(128, 128, 128),
+    //         ],
+    //         _status: String::from('\0'),
+    //         _rc: Rect::new(0, 0, canvas.window().size().0, canvas.window().size().1),
+    //     }
+    // }
     pub fn create_font() {}
     pub fn draw(
         &mut self,

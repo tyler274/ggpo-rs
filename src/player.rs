@@ -17,8 +17,8 @@ pub struct Player {
 impl Player {
     pub fn new(player_type: PlayerType, player_num: usize) -> Player {
         Player {
-            player_num: player_num,
-            player_type: player_type,
+            player_num,
+            player_type,
             size: std::mem::size_of::<Player>(),
         }
     }

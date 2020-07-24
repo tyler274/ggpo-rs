@@ -7,9 +7,7 @@
 use crate::vectorwar::Input;
 use enumflags2::BitFlags;
 use ggpo::game_input::FrameNum;
-use ggpo::ggpo::Session;
-use log::{error, info, warn};
-use sdl2::rect::Rect;
+use log::info;
 use std::f64::consts::PI;
 
 pub const STARTING_HEALTH: i32 = 100;
@@ -104,7 +102,7 @@ impl Ship {
 
 pub struct GameState {
     pub frame_number: FrameNum,
-    pub bounds: Rect,
+    // pub bounds: Rect,
     pub num_ships: u32,
     pub ships: [Ship; MAX_SHIPS],
 }
@@ -113,14 +111,14 @@ impl GameState {
     pub fn new() -> Self {
         Self {
             frame_number: 0,
-            bounds: Rect::new(0, 0, 0, 0),
+            // bounds: Rect::new(0, 0, 0, 0),
             num_ships: 0,
             ships: [Ship::new(); MAX_SHIPS],
         }
     }
     pub fn init(&mut self, num_players: u32, width: u32, height: u32) {
-        self.bounds.set_width(width);
-        self.bounds.set_height(height);
+        // self.bounds.set_width(width);
+        // self.bounds.set_height(height);
 
         let r = height / 4;
 
@@ -228,47 +226,47 @@ impl GameState {
                 ship.position.x, ship.position.y
             );
 
-            if ship.position.x - (ship.radius as f64) < self.bounds.y() as f64
-                || ship.position.y + ship.radius as f64
-                    > self.bounds.y() as f64 + self.bounds.height() as f64
-            {
-                ship.velocity.dx *= -1.;
-                ship.position.x += ship.velocity.dx * 2.;
-            }
+            // if ship.position.x - (ship.radius as f64) < self.bounds.y() as f64
+            //     || ship.position.y + ship.radius as f64
+            //         > self.bounds.y() as f64 + self.bounds.height() as f64
+            // {
+            //     ship.velocity.dx *= -1.;
+            //     ship.position.x += ship.velocity.dx * 2.;
+            // }
 
-            if ship.position.y - (ship.radius as f64) < self.bounds.y() as f64
-                || ship.position.y + (ship.radius as f64)
-                    > self.bounds.y() as f64 + self.bounds.height() as f64
-            {
-                ship.velocity.dy *= -1.;
-                ship.position.y += ship.velocity.dy * 2.;
-            }
+            // if ship.position.y - (ship.radius as f64) < self.bounds.y() as f64
+            //     || ship.position.y + (ship.radius as f64)
+            //         > self.bounds.y() as f64 + self.bounds.height() as f64
+            // {
+            //     ship.velocity.dy *= -1.;
+            //     ship.position.y += ship.velocity.dy * 2.;
+            // }
 
-            for i in 0..MAX_BULLETS {
-                let bullet = &mut ship.bullets[i];
-                if bullet.active {
-                    bullet.position.x += bullet.velocity.dx;
-                    bullet.position.y += bullet.velocity.dy;
-                    if bullet.position.x < self.bounds.x() as f64
-                        || bullet.position.y < self.bounds.x() as f64
-                        || bullet.position.x > self.bounds.x() as f64 + self.bounds.width() as f64
-                        || bullet.position.y > self.bounds.y() as f64 + self.bounds.height() as f64
-                    {
-                        bullet.active = false;
-                    } else {
-                        for j in 0..self.num_ships as usize {
-                            if bullet.position.distance(&self.ships[j].position)
-                                < self.ships[j].radius as f64
-                            {
-                                ship.score += 1;
-                                self.ships[j].health -= BULLET_DAMAGE as i32;
-                                bullet.active = false;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+            // for i in 0..MAX_BULLETS {
+            //     let bullet = &mut ship.bullets[i];
+            //     if bullet.active {
+            //         bullet.position.x += bullet.velocity.dx;
+            //         bullet.position.y += bullet.velocity.dy;
+            //         if bullet.position.x < self.bounds.x() as f64
+            //             || bullet.position.y < self.bounds.x() as f64
+            //             || bullet.position.x > self.bounds.x() as f64 + self.bounds.width() as f64
+            //             || bullet.position.y > self.bounds.y() as f64 + self.bounds.height() as f64
+            //         {
+            //             bullet.active = false;
+            //         } else {
+            //             for j in 0..self.num_ships as usize {
+            //                 if bullet.position.distance(&self.ships[j].position)
+            //                     < self.ships[j].radius as f64
+            //                 {
+            //                     ship.score += 1;
+            //                     self.ships[j].health -= BULLET_DAMAGE as i32;
+            //                     bullet.active = false;
+            //                     break;
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
         }
         self.ships[i] = ship;
     }

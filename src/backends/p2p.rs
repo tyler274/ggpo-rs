@@ -12,8 +12,6 @@ use crate::{
     player::{Player, PlayerHandle},
     sync::{self, GGPOSync, SyncError},
 };
-// use async_mutex::Mutex;
-// use async_trait::async_trait;
 use log::{error, info};
 use mio::{Events, Poll, Token};
 use parking_lot::Mutex;
@@ -61,7 +59,6 @@ pub struct Peer2PeerBackend<T>
 where
     T: GGPOSessionCallbacks + Send + Sync + Clone,
 {
-    game_name: String,
     callbacks: Arc<Mutex<T>>,
     sync: Arc<Mutex<GGPOSync<T>>>,
     udp: Arc<Mutex<Udp<Self>>>,
@@ -84,9 +81,8 @@ where
 }
 
 impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
-    pub async fn new(
+    pub fn new(
         callbacks: Arc<Mutex<T>>,
-        game_name: String,
         local_port: u16,
         num_players: usize,
         input_size: usize,
@@ -132,7 +128,6 @@ impl<T: GGPOSessionCallbacks + Send + Sync> Peer2PeerBackend<T> {
         // this feels really neat, but I have suspicions.
         let p2p = Arc::new(Mutex::new(Self {
             num_players,
-            game_name,
             input_size,
             num_spectators: 0,
             next_spectator_frame: 0,
@@ -644,7 +639,7 @@ where
 
                 self.sync
                     .lock()
-                    .set_last_confirmed_frame(Some(total_min_confirmed));
+                    .set_last_confirmed_frame(Some(total_min_confirmed))?;
 
                 // send timesync notifications if now is the proper time
                 if current_frame > self.next_recommended_sleep {
@@ -709,7 +704,7 @@ where
         let mut input = GameInput::init(None, Some(&values), size);
 
         // Feed the input for the current frame into the synchronzation layer.
-        if !self.sync.lock().add_local_input(queue, &mut input) {
+        if !self.sync.lock().add_local_input(queue, &mut input)? {
             return Err(GGPOError::PredictionThreshold);
         }
 
@@ -758,7 +753,7 @@ where
         {
             let mut sync = self.sync.lock();
             info!("End of frame ({:?})...\n", sync.get_frame_count());
-            sync.increment_frame();
+            sync.increment_frame()?;
         }
         self.do_poll(None)?;
         self.poll_sync_events()?;

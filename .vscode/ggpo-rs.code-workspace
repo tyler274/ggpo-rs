@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": ".."
+		},
+		{
+			"path": "..\\..\\ggpo-sdl"
 		}
 	],
 	"settings": {
@@ -19,4 +22,5 @@
 			"serayuzgur.crates"
 		]
 	}
+	//!*.cpp, !*.h, !**/vectorwar/*.rs for problem view filter
 }
