@@ -38,17 +38,26 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 debug = true
 # lto = "thin"
 
+
 # for examples, tests, and benches
 [dev-dependencies]
 tempdir = "0.3"
 crc32fast = "1.2"
 enumflags2 = "0.6"
+amethyst = {version ="0.15"}
 
-[target.'cfg(linux)'.dev-dependencies]
-amethyst = {version ="0.15", features = ["vulkan"]}
+[features]
+default = ["vulkan"] # <---- ta-dah!
+metal = ["amethyst/metal"]
+vulkan = ["amethyst/vulkan"]
 
-[target.'cfg(macos)'.dev-dependencies]
-amethyst = {version ="0.15", features = ["metal"]}
 
-[target.x86_64-pc-windows-msvc.dev-dependencies]
-amethyst = {version ="0.15", features = ["vulkan"]}
+# [target.'cfg(linux)'.dev-dependencies]
+# amethyst = {version ="0.15", features = ["vulkan"], default-features = false}
+
+# [target.x86_64-pc-windows-msvc.dev-dependencies]
+# amethyst = {version ="0.15", features = ["vulkan"], default-features = false}
+
+# [target.x86_64-apple-darwin.dev-dependencies]
+# amethyst = {version ="0.15", features = ["metal"], default-features = false}
+
