@@ -50,5 +50,5 @@ amethyst = {version ="0.15", features = ["vulkan"]}
 [target.'cfg(macos)'.dev-dependencies]
 amethyst = {version ="0.15", features = ["metal"]}
 
-[target.'cfg(windows)'.dev-dependencies]
+[target.x86_64-pc-windows-msvc.dev-dependencies]
 amethyst = {version ="0.15", features = ["vulkan"]}
