@@ -154,9 +154,9 @@ impl<T: GGPOSessionCallbacks> GGPOSync<T> {
     }
 
     pub fn init(&mut self, config: Config<T>) -> Result<(), SyncError> {
-        // self.callbacks = config.callbacks;
         self.max_prediction_frames = config.num_prediction_frames;
         self.config = Some(config.clone());
+        self.callbacks = Some(config.callbacks.ok_or(SyncError::CallbacksNone)?.clone());
         self.frame_count = 0;
         self.rolling_back = false;
 
