@@ -31,7 +31,7 @@ flatbuffers = "0.6"
 name = "ggpo"
 crate-type = ["cdylib", "staticlib", "rlib"] 
 
-[profile.dev]
+# [profile.dev]
 # lto = "thin"
 
 [profile.release]
@@ -42,5 +42,13 @@ debug = true
 [dev-dependencies]
 tempdir = "0.3"
 crc32fast = "1.2"
-amethyst = {version ="0.15", features = ["vulkan"]}
 enumflags2 = "0.6"
+
+[target.'cfg(windows)'.dev-dependencies]
+amethyst = {version ="0.15", features = ["vulkan"]}
+
+[target.'cfg(linux)'.dev-dependencies]
+amethyst = {version ="0.15", features = ["vulkan"]}
+
+[target.'cfg(macos)'.dev-dependencies]
+amethyst = {version ="0.15", features = ["metal"]}
