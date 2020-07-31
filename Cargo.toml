@@ -26,18 +26,12 @@ parking_lot = "0.11"
 mio = {version = "0.7", features=["udp", "os-poll"]}
 flatbuffers = "0.6"
 
-
 [lib]
 name = "ggpo"
 crate-type = ["cdylib", "staticlib", "rlib"] 
 
-# [profile.dev]
-# lto = "thin"
-
 [profile.release]
 debug = true
-# lto = "thin"
-
 
 # for examples, tests, and benches
 [dev-dependencies]
@@ -50,14 +44,3 @@ amethyst = {version ="0.15"}
 default = ["vulkan"] # <---- ta-dah!
 metal = ["amethyst/metal"]
 vulkan = ["amethyst/vulkan"]
-
-
-# [target.'cfg(linux)'.dev-dependencies]
-# amethyst = {version ="0.15", features = ["vulkan"], default-features = false}
-
-# [target.x86_64-pc-windows-msvc.dev-dependencies]
-# amethyst = {version ="0.15", features = ["vulkan"], default-features = false}
-
-# [target.x86_64-apple-darwin.dev-dependencies]
-# amethyst = {version ="0.15", features = ["metal"], default-features = false}
-
