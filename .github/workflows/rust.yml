@@ -78,8 +78,7 @@ jobs:
             target
           key: ${{ runner.os }}-${{ matrix.toolchain }}-test-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install libasound2-dev
-          run: |
-            sudo apt-get install -y libasound2-dev 
+        run: sudo apt-get install -y libasound2-dev
       - uses: actions-rs/cargo@v1
         with:
           command: test
