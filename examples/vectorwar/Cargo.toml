@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Tyler Port <tyler274port@gmail.com>"]
 edition = "2018"
 
+
 # for examples, tests, and benches
 [dependencies]
 log = "0.4"
@@ -22,3 +23,12 @@ ggpo = {version = "0.1", path= "../../ggpo"}
 default = ["vulkan"]
 metal = ["amethyst/metal"]
 vulkan = ["amethyst/vulkan"]
+
+# [target.'cfg(target_os = "macos")'.features]
+# default = ["metal"]
+
+# [target.'cfg(target_os = "windows")'.features]
+# default = ["vulkan"]
+
+# [target.'cfg(target_os = "linux")'.features]
+# default = ["vulkan"]

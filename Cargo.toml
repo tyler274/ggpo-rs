@@ -1,3 +1,4 @@
+cargo-features = ["resolver"]
 [workspace]
 members = [
     "ggpo",
@@ -5,6 +6,7 @@ members = [
     # Example crates.
     "examples/*",
 ]
+resolver = "2"
 
 [profile.release]
 debug = true
