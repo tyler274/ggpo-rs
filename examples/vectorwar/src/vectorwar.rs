@@ -1,4 +1,3 @@
-use crate::constants::MAX_PLAYERS;
 use crate::game_state::MAX_SHIPS;
 use crc32fast::Hasher;
 use enumflags2::BitFlags;

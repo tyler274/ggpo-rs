@@ -13,7 +13,7 @@ use crate::{
     sync::{self, GGPOSync, SyncError},
 };
 use log::{error, info};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::{collections::VecDeque, net::SocketAddr, sync::Arc, time::Duration};
 use thiserror::Error;
 

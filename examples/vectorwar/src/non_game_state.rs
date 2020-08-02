@@ -1,10 +1,10 @@
-use crate::constants::MAX_PLAYERS;
-// Is the redefined constant above supposed to be 64, because of spectator's not needing inputs tracked?
 use ggpo::{
     game_input::{Frame, FrameNum, GAMEINPUT_MAX_PLAYERS},
     ggpo::Event,
     player::{Player, PlayerHandle, PlayerType},
 };
+
+pub const MAX_PLAYERS: u32 = 4;
 
 /*
  * These are other pieces of information not related to the state
@@ -42,7 +42,7 @@ impl ChecksumInfo {
 
 pub struct NonGameState {
     pub local_player_handle: PlayerHandle,
-    pub players: [PlayerConnectionInfo; MAX_PLAYERS],
+    pub players: [PlayerConnectionInfo; MAX_PLAYERS as usize],
     pub num_players: u32,
     pub now: ChecksumInfo,
     pub periodic: ChecksumInfo,

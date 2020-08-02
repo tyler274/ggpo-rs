@@ -1,12 +1,3 @@
-extern crate ggpo;
-
-mod constants;
-mod game_state;
-mod non_game_state;
-// mod resource_manager;
-// mod sdl_renderer;
-mod vectorwar;
-
 use std::path::Path;
 use std::time::Duration;
 
