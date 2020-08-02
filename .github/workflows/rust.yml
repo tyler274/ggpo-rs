@@ -42,6 +42,11 @@ jobs:
         os: [windows-latest]
         toolchain: [nightly]
     steps:
+      - name: Get current time
+        uses: 1466587594/get-current-time@v1
+        id: current-time
+        with:
+          format: YYYYMMDD
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
@@ -50,12 +55,20 @@ jobs:
           override: true
           # path: .\act\actions-rs-toolchain@v1
       - uses: actions/cache@v2
+        env:
+          cache-name: test-cargo
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.toolchain }}-test-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.toolchain }}-${{ env.cache-name }}-${{ steps.current-time.outputs.formattedTime }}-${{ hashFiles('**/Cargo.lock') }}
+          # restore-keys: |
+          #   ${{ runner.os }}-${{ matrix.toolchain }}-${{ env.cache-name }}-${{ hashFiles('**/Cargo.lock') }}
+          #   ${{ runner.os }}-${{ matrix.toolchain }}-${{ env.cache-name }}-
+          #   ${{ runner.os }}-${{ matrix.toolchain }}-
+          #   ${{ runner.os }}-
+
       - uses: actions-rs/cargo@v1
         with:
           command: test
@@ -152,7 +165,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        toolchain: [stable, nightly]
+        toolchain: [nightly]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
