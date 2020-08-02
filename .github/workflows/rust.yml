@@ -115,7 +115,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --examples --no-default-features --features metal 
+          args: --examples --features metal 
 
   fmt:
     name: Rustfmt (${{ matrix.toolchain }})
