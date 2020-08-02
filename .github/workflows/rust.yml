@@ -12,6 +12,11 @@ jobs:
         os: [ubuntu-latest]
         toolchain: [nightly]
     steps:
+      - name: Get current time
+        uses: 1466587594/get-current-time@v1
+        id: current-time
+        with:
+          format: YYYYMMDD
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
@@ -81,6 +86,11 @@ jobs:
         os: [ubuntu-latest]
         toolchain: [nightly]
     steps:
+      - name: Get current time
+        uses: 1466587594/get-current-time@v1
+        id: current-time
+        with:
+          format: YYYYMMDD
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
@@ -110,6 +120,11 @@ jobs:
         os: [macOS-latest]
         toolchain: [nightly]
     steps:
+      - name: Get current time
+        uses: 1466587594/get-current-time@v1
+        id: current-time
+        with:
+          format: YYYYMMDD
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
@@ -137,6 +152,11 @@ jobs:
         os: [ubuntu-latest]
         toolchain: [nightly]
     steps:
+      - name: Get current time
+        uses: 1466587594/get-current-time@v1
+        id: current-time
+        with:
+          format: YYYYMMDD
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
@@ -165,6 +185,11 @@ jobs:
         os: [ubuntu-latest]
         toolchain: [nightly]
     steps:
+      - name: Get current time
+        uses: 1466587594/get-current-time@v1
+        id: current-time
+        with:
+          format: YYYYMMDD
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
